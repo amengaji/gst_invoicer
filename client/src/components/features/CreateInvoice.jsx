@@ -1,0 +1,271 @@
+import React, { useState, useEffect } from 'react';
+import { FileText, Plus, Trash2 } from 'lucide-react';
+import Card from '../ui/Card';
+import Button from '../ui/Button';
+import Input from '../ui/Input';
+import Select from '../ui/Select';
+import { CURRENCIES, STATES } from '../../lib/constants';
+
+const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingInvoice }) => {
+  const [items, setItems] = useState([{ id: 1, desc: '', hsn: '', qty: 1, price: 0 }]);
+  
+  // Initialize client state safely
+  const [client, setClient] = useState({ 
+    id: '', name: '', gstin: '', state: 'Maharashtra', address: '', city: '', country: 'India', 
+    contacts: [], selectedContact: null 
+  });
+  
+  const [settings, setSettings] = useState({ 
+    invoiceNo: `${userSettings.invoicePrefix}-${Math.floor(Math.random() * 1000)}`, 
+    date: new Date().toISOString().split('T')[0], 
+    currency: userSettings.currency,
+    myState: userSettings.state,
+    isLut: false,
+    exchangeRate: 1
+  });
+
+  useEffect(() => {
+    if (editingInvoice) {
+        setItems(editingInvoice.items);
+        setClient(editingInvoice.client || {});
+        setSettings({
+            invoiceNo: editingInvoice.id,
+            date: editingInvoice.date ? editingInvoice.date.split('T')[0] : new Date().toISOString().split('T')[0],
+            currency: editingInvoice.currency,
+            myState: userSettings.state, 
+            isLut: editingInvoice.type?.includes('LUT') || false,
+            exchangeRate: parseFloat(editingInvoice.exchange_rate) || 1
+        });
+    }
+  }, [editingInvoice, userSettings]);
+
+  // Handle Dropdown Selection
+  const handleClientSelect = (clientId) => {
+    // 1. Find the full client object from the ID
+    const selected = clients.find(c => String(c.id) === String(clientId));
+    
+    if(selected) {
+      setClient({ 
+        ...selected, 
+        // Default to first contact if available
+        selectedContact: selected.contacts && selected.contacts.length > 0 ? selected.contacts[0] : null 
+      });
+    } else {
+      // Reset if user selects the placeholder
+      setClient({ id: '', name: '', gstin: '', state: 'Maharashtra', address: '', contacts: [], selectedContact: null });
+    }
+  }
+
+  const handleContactSelect = (e) => {
+    const contactIndex = e.target.value;
+    if (contactIndex !== "" && client.contacts) {
+        setClient({ ...client, selectedContact: client.contacts[contactIndex] });
+    }
+  }
+
+  const addItem = () => setItems([...items, { id: Date.now(), desc: '', hsn: '', qty: 1, price: 0 }]);
+  const removeItem = (id) => setItems(items.filter(i => i.id !== id));
+  
+  const updateItem = (id, field, value) => {
+    setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
+  };
+
+  // Calculations
+  const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
+  
+  const isInterstate = settings.myState !== client.state;
+  const isExport = client.state === 'Other'; 
+  const isLut = settings.isLut && isExport;
+
+  let cgst = 0, sgst = 0, igst = 0;
+  
+  if (isExport) {
+    if (!isLut) igst = subtotal * 0.18; 
+  } else if (isInterstate) {
+    igst = subtotal * 0.18;
+  } else {
+    cgst = subtotal * 0.09;
+    sgst = subtotal * 0.09;
+  }
+
+  const totalTax = cgst + sgst + igst;
+  const grandTotal = subtotal + totalTax;
+
+  const handleSaveClick = () => {
+      onSave({ 
+        id: settings.invoiceNo,
+        invoiceNo: settings.invoiceNo,
+        client, 
+        items, 
+        date: settings.date,
+        total: grandTotal, 
+        amount: grandTotal, 
+        tax: totalTax, 
+        status: editingInvoice ? editingInvoice.status : 'Pending',
+        type: isExport ? (isLut ? 'Export (LUT)' : 'Export') : (isInterstate ? 'Interstate' : 'Intrastate'),
+        currency: settings.currency,
+        exchangeRate: settings.exchangeRate,
+        isLut: settings.isLut,
+        myState: settings.myState
+      });
+  };
+
+  return (
+    <div className="max-w-4xl mx-auto space-y-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h2 className="text-2xl font-bold dark:text-white">{editingInvoice ? 'Edit Invoice' : 'New Invoice'}</h2>
+          <p className="text-slate-500 text-sm">Create a GST compliant invoice</p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={onCancel}>Cancel</Button>
+          <Button onClick={handleSaveClick} icon={FileText}>
+            {editingInvoice ? 'Update Invoice' : 'Save Invoice'}
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+        <Card className="col-span-2 p-6 space-y-6">
+          {/* Client Details */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">Bill To</h3>
+            
+            <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
+               {/* Fixed Select Component Logic */}
+               <Select 
+                 label="Select Saved Client"
+                 placeholder="-- Choose a client --"
+                 value={client.id || ''}
+                 onChange={(e) => handleClientSelect(e.target.value)}
+                 options={clients.map(c => ({label: c.name, value: c.id}))}
+               />
+               
+               {client.id && client.contacts && client.contacts.length > 0 && (
+                 <Select 
+                    label="Attention To (PIC)"
+                    value={client.contacts.indexOf(client.selectedContact)}
+                    onChange={handleContactSelect}
+                    options={client.contacts.map((c, idx) => ({ label: c.name, value: idx }))}
+                 />
+               )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-4">
+              <Input label="Client Name" value={client.name} onChange={(e) => setClient({...client, name: e.target.value})} placeholder="Acme Corp" />
+              <Input label="GSTIN" value={client.gstin} onChange={(e) => setClient({...client, gstin: e.target.value})} />
+              <div className="col-span-2">
+                 <Input label="Address" value={client.address} onChange={(e) => setClient({...client, address: e.target.value})} />
+              </div>
+              <Select 
+                label="Place of Supply" 
+                value={client.state} 
+                onChange={(e) => setClient({...client, state: e.target.value})} 
+                options={[...STATES.map(s => ({label: s, value: s})), {label: "Foreign (Export)", value: "Other"}]}
+              />
+              <Input label="City" value={client.city || ''} onChange={(e) => setClient({...client, city: e.target.value})} />
+            </div>
+          </div>
+
+          {/* Items */}
+          <div>
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">Items</h3>
+            <div className="space-y-3">
+              <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
+                <div className="col-span-5">Description</div>
+                <div className="col-span-2">HSN/SAC</div>
+                <div className="col-span-1 text-center">Qty</div>
+                <div className="col-span-3 text-right">Price</div>
+                <div className="col-span-1"></div>
+              </div>
+              {items.map((item, index) => (
+                <div key={item.id || index} className="grid grid-cols-12 gap-2 items-center">
+                  <div className="col-span-5">
+                    <Input value={item.desc} onChange={(e) => updateItem(item.id, 'desc', e.target.value)} placeholder="Description" />
+                  </div>
+                  <div className="col-span-2">
+                    <Input value={item.hsn} onChange={(e) => updateItem(item.id, 'hsn', e.target.value)} placeholder="998311" />
+                  </div>
+                  <div className="col-span-1">
+                    <Input type="number" value={item.qty} onChange={(e) => updateItem(item.id, 'qty', parseInt(e.target.value) || 0)} className="text-center" />
+                  </div>
+                  <div className="col-span-3">
+                    <Input type="number" value={item.price} onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)} className="text-right" />
+                  </div>
+                  <div className="col-span-1 flex justify-center">
+                    <button onClick={() => removeItem(item.id)} className="text-red-400 hover:text-red-600 transition-colors">
+                      <Trash2 size={16} />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              <Button variant="ghost" onClick={addItem} icon={Plus} className="w-full mt-2 text-sm border-dashed border border-slate-300">Add Line Item</Button>
+            </div>
+          </div>
+        </Card>
+
+        {/* Settings & Totals */}
+        <div className="space-y-6">
+          <Card className="p-6 space-y-4">
+             <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider">Invoice Settings</h3>
+             <Input label="Invoice Number" value={settings.invoiceNo} onChange={(e) => setSettings({...settings, invoiceNo: e.target.value})} disabled={!!editingInvoice} />
+             <Input label="Date" type="date" value={settings.date} onChange={(e) => setSettings({...settings, date: e.target.value})} />
+             <Select 
+                label="Currency" 
+                value={settings.currency} 
+                onChange={(e) => setSettings({...settings, currency: e.target.value})} 
+                options={CURRENCIES}
+             />
+             
+             <div className="flex items-center gap-2 pt-2">
+               <input 
+                 type="checkbox" 
+                 id="lut" 
+                 checked={settings.isLut} 
+                 onChange={(e) => setSettings({...settings, isLut: e.target.checked})}
+                 className="rounded border-slate-300 text-[var(--primary)] focus:ring-[var(--primary)]"
+               />
+               <label htmlFor="lut" className="text-sm text-slate-700 dark:text-slate-300">Export under LUT</label>
+             </div>
+          </Card>
+
+          <Card className="p-6 bg-slate-50 dark:bg-slate-800/50">
+            <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-4">Summary</h3>
+            <div className="space-y-2 text-sm">
+              <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                <span>Subtotal</span>
+                <span>{settings.currency} {subtotal.toFixed(2)}</span>
+              </div>
+              
+              {!isLut && cgst > 0 && (
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>CGST (9%)</span>
+                  <span>{settings.currency} {cgst.toFixed(2)}</span>
+                </div>
+              )}
+              {!isLut && sgst > 0 && (
+                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>SGST (9%)</span>
+                  <span>{settings.currency} {sgst.toFixed(2)}</span>
+                </div>
+              )}
+              {!isLut && igst > 0 && (
+                <div className="flex justify-between text-slate-600 dark:text-slate-400">
+                  <span>IGST (18%)</span>
+                  <span>{settings.currency} {igst.toFixed(2)}</span>
+                </div>
+              )}
+
+              <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3 flex justify-between font-bold text-lg dark:text-white">
+                <span>Total</span>
+                <span>{settings.currency} {grandTotal.toFixed(2)}</span>
+              </div>
+            </div>
+          </Card>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default CreateInvoice;
