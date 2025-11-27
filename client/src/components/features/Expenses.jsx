@@ -87,7 +87,12 @@ const Expenses = ({ addToast }) => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold dark:text-white">Expense Tracker</h2>
+        <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold dark:text-white">Expense Tracker</h2>
+            <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium border border-slate-200 dark:border-slate-700">
+                Total: {expenses.length}
+            </span>
+        </div>
       </div>
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Expense Form */}

@@ -9,6 +9,7 @@ import { DeleteModal, PaymentModal } from './components/ui/Modal';
 import Badge from './components/ui/Badge';
 import Card from './components/ui/Card';
 import Button from './components/ui/Button';
+import Select from './components/ui/Select'; 
 
 // Features
 import Dashboard from './components/features/Dashboard';
@@ -25,7 +26,8 @@ export default function App() {
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   
-  // --- Sorting State ---
+  // --- Filtering State ---
+  const [selectedFY, setSelectedFY] = useState(''); 
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
 
   // --- Global Data State ---
@@ -33,7 +35,6 @@ export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [clients, setClients] = useState([]);
   
-  // Single declaration of userSettings
   const [userSettings, setUserSettings] = useState({
      companyName: 'My Tech Company',
      email: 'admin@company.com',
@@ -54,6 +55,16 @@ export default function App() {
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [editingInvoice, setEditingInvoice] = useState(null);
 
+  // --- Helper: Calculate Fiscal Year ---
+  const getFiscalYear = (dateStr) => {
+      if (!dateStr) return 'Unknown';
+      const date = new Date(dateStr);
+      const month = date.getMonth() + 1; 
+      const year = date.getFullYear();
+      if (month < 4) return `FY ${year - 1}-${String(year).slice(-2)}`;
+      return `FY ${year}-${String(year + 1).slice(-2)}`;
+  };
+
   // --- API: Load Data ---
   const loadData = async () => {
     try {
@@ -64,16 +75,23 @@ export default function App() {
             fetch('http://localhost:5000/api/settings')
         ]);
         
-        setInvoices(await invRes.json());
-        setExpenses(await expRes.json());
-        setClients(await cliRes.json());
+        // CRASH FIX: Verify data is array before setting
+        const invData = await invRes.json();
+        setInvoices(Array.isArray(invData) ? invData : []);
+
+        const expData = await expRes.json();
+        setExpenses(Array.isArray(expData) ? expData : []);
+
+        const cliData = await cliRes.json();
+        setClients(Array.isArray(cliData) ? cliData : []);
         
+        if (!selectedFY) setSelectedFY(getFiscalYear(new Date()));
+
         const settingsData = await setRes.json();
         if(settingsData && settingsData.id) {
             setUserSettings(prev => ({ 
                 ...prev,
                 ...settingsData, 
-                // Parse JSON string from DB back to Array
                 bank_accounts: typeof settingsData.bank_accounts === 'string' 
                     ? JSON.parse(settingsData.bank_accounts) 
                     : (settingsData.bank_accounts || [])
@@ -101,20 +119,34 @@ export default function App() {
 
   const handleSaveInvoice = async (newInvoice) => {
     try {
-        const res = await fetch('http://localhost:5000/api/invoices', {
-            method: 'POST',
+        // Safe Check
+        const safeInvoices = Array.isArray(invoices) ? invoices : [];
+        const isUpdate = safeInvoices.some(inv => inv.id === newInvoice.id);
+        
+        const url = isUpdate 
+            ? `http://localhost:5000/api/invoices/${newInvoice.id}`
+            : 'http://localhost:5000/api/invoices';
+            
+        const method = isUpdate ? 'PUT' : 'POST';
+
+        const res = await fetch(url, {
+            method: method,
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(newInvoice)
         });
         
-        if(!res.ok) throw new Error("Save failed");
+        if(!res.ok) {
+            const err = await res.json();
+            throw new Error(err.error || "Save failed");
+        }
         
-        addToast("Invoice saved successfully!", "success");
+        addToast(isUpdate ? "Invoice updated successfully!" : "Invoice created successfully!", "success");
         setEditingInvoice(null);
         setActiveTab('invoices');
         loadData(); 
     } catch (e) {
-        addToast("Error saving invoice", "error");
+        console.error(e);
+        addToast(`Error: ${e.message}`, "error");
     }
   };
 
@@ -192,13 +224,30 @@ export default function App() {
     setSortConfig({ key, direction });
   };
 
+  // --- Derive Available FYs ---
+  const availableFiscalYears = useMemo(() => {
+      const safeInvoices = Array.isArray(invoices) ? invoices : [];
+      const years = new Set();
+      years.add("All Time"); 
+      years.add(getFiscalYear(new Date()));
+      safeInvoices.forEach(inv => {
+          if(inv.date) years.add(getFiscalYear(inv.date));
+      });
+      return Array.from(years).sort().reverse();
+  }, [invoices]);
+
   // --- Filtering & Sorting Logic ---
   const processedInvoices = useMemo(() => {
-    let data = invoices.filter(inv => 
+    const safeInvoices = Array.isArray(invoices) ? invoices : [];
+    let data = safeInvoices.filter(inv => 
       !searchQuery || 
       inv.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       (inv.client?.name || '').toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    if (selectedFY && selectedFY !== "All Time") {
+        data = data.filter(inv => getFiscalYear(inv.date) === selectedFY);
+    }
 
     if (sortConfig.key) {
       data.sort((a, b) => {
@@ -219,17 +268,14 @@ export default function App() {
       });
     }
     return data;
-  }, [invoices, searchQuery, sortConfig]);
+  }, [invoices, searchQuery, sortConfig, selectedFY]);
 
 
   // --- Invoice Import Logic ---
   const handleDownloadInvoiceTemplate = () => {
     const headers = "Invoice No,Date,Client Name,Client State,Currency,Exchange Rate,Item Desc,Item HSN,Item Qty,Item Price,Is LUT\n";
-    const sampleRow1 = "INV-001,2023-10-25,Acme Corp,Maharashtra,INR,1,Web Dev Services,9983,1,50000,FALSE\n";
-    const sampleRow2 = "INV-001,2023-10-25,Acme Corp,Maharashtra,INR,1,Hosting Charges,9983,1,5000,FALSE\n"; 
-    const sampleRow3 = "INV-002,2023-10-26,Global Inc,Other,USD,83.5,Consulting,9983,10,100,TRUE";
-    
-    const blob = new Blob([headers + sampleRow1 + sampleRow2 + sampleRow3], { type: 'text/csv' });
+    const sampleRow1 = "INV-001,01-04-2025,Acme Corp,Maharashtra,INR,1,Web Dev Services,9983,1,50000,FALSE\n";
+    const blob = new Blob([headers + sampleRow1], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
@@ -238,140 +284,125 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+// --- FIXED: Import Logic with Correct Overwrite Handling ---
+// --- Fail-Safe Invoice Import Logic ---
   const handleInvoiceFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // Ask for overwrite permission upfront
+    const allowOverwrite = window.confirm("If duplicate Invoice IDs are found, do you want to OVERWRITE them?\n\nClick OK to Overwrite.\nClick Cancel to Skip duplicates.");
+
     try {
-      addToast("Reading file...", "info");
+      addToast("Processing...", "info");
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-      const clientCache = new Map();
-      clients.forEach(c => {
-          if (c.name) clientCache.set(c.name.toLowerCase(), c);
-      });
+      // Helper: Safe Value Getter
+      const getVal = (row, key) => {
+           const val = row[key] || row[key.toLowerCase()] || row[key.toUpperCase()];
+           return val !== undefined && val !== null ? String(val).trim() : '';
+      };
 
+      // 1. Setup Client Cache
+      const clientCache = new Map();
+      if (Array.isArray(clients)) {
+          clients.forEach(c => {
+              if (c.name) clientCache.set(c.name.toLowerCase(), c);
+          });
+      }
+
+      // 2. Date Parser
       const parseDate = (dateStr) => {
          try {
              if (!dateStr) return new Date().toISOString().split('T')[0];
-             if (typeof dateStr === 'number') {
-                return new Date(Math.round((dateStr - 25569) * 864e5)).toISOString().split('T')[0];
-             }
+             if (typeof dateStr === 'number') return new Date(Math.round((dateStr - 25569) * 864e5)).toISOString().split('T')[0];
              if (typeof dateStr === 'string') {
                  const cleanStr = dateStr.trim();
-                 const numericDate = Number(cleanStr);
-                 if (!isNaN(numericDate) && numericDate > 25569) {
-                     return new Date(Math.round((numericDate - 25569) * 864e5)).toISOString().split('T')[0];
-                 }
+                 if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) return cleanStr;
                  const parts = cleanStr.split(/[-/.]/);
                  if (parts.length === 3) {
-                     let day = parts[0].padStart(2, '0');
-                     let month = parts[1].padStart(2, '0');
-                     let year = parts[2];
-                     if (year.length === 2) year = '20' + year; 
                      if (parts[0].length === 4) return `${parts[0]}-${parts[1]}-${parts[2]}`;
-                     return `${year}-${month}-${day}`;
+                     return `${parts[2]}-${parts[1]}-${parts[0].padStart(2, '0')}`;
                  }
              }
              return new Date(dateStr).toISOString().split('T')[0];
-         } catch (e) {
-             return new Date().toISOString().split('T')[0];
-         }
+         } catch (e) { return new Date().toISOString().split('T')[0]; }
       };
 
-      const invoicesMap = new Map();
-
+      // 3. Create Missing Clients
+      const uniqueNewClients = new Map();
       for (const row of jsonData) {
-        const getVal = (key) => {
-             const val = row[key] || row[key.toLowerCase()] || row[key.toUpperCase()];
-             return val !== undefined && val !== null ? String(val).trim() : '';
-        };
+          const name = getVal(row, 'Client Name');
+          if(name && !clientCache.has(name.toLowerCase()) && !uniqueNewClients.has(name.toLowerCase())) {
+              const newClient = {
+                  id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+                  name: name,
+                  state: getVal(row, 'Client State') || 'Maharashtra',
+                  address: 'Imported Address', city: 'Imported City', country: 'India', contacts: []
+              };
+              uniqueNewClients.set(name.toLowerCase(), newClient);
+          }
+      }
 
-        const invNo = getVal('Invoice No');
+      for (const client of uniqueNewClients.values()) {
+          try {
+              await fetch('http://localhost:5000/api/clients', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify(client)
+              });
+              clientCache.set(client.name.toLowerCase(), client);
+          } catch(e) { console.error("Client create error", e); }
+      }
+
+      // 4. Group Invoices
+      const invoicesMap = new Map();
+      for (const row of jsonData) {
+        const invNo = getVal(row, 'Invoice No');
         if (!invNo) continue;
 
         const item = {
-            desc: getVal('Item Desc'),
-            hsn: getVal('Item HSN'),
-            qty: parseFloat(getVal('Item Qty')) || 1,
-            price: parseFloat(getVal('Item Price')) || 0
+            desc: getVal(row, 'Item Desc'),
+            hsn: getVal(row, 'Item HSN'),
+            qty: parseFloat(getVal(row, 'Item Qty')) || 1,
+            price: parseFloat(getVal(row, 'Item Price')) || 0
         };
 
         if (invoicesMap.has(invNo)) {
             invoicesMap.get(invNo).items.push(item);
         } else {
-            const clientName = getVal('Client Name');
-            const clientState = getVal('Client State') || 'Maharashtra'; 
-            
-            let matchedClient = null;
-            if (clientName) {
-                matchedClient = clientCache.get(clientName.toLowerCase());
-                if (!matchedClient) {
-                    const newClientId = `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-                    matchedClient = {
-                        id: newClientId,
-                        name: clientName,
-                        state: clientState,
-                        address: 'Imported Address',
-                        city: 'Imported City',
-                        country: clientState === 'Other' ? 'Foreign' : 'India',
-                        contacts: []
-                    };
-                    try {
-                        await fetch('http://localhost:5000/api/clients', {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify(matchedClient)
-                        });
-                        clientCache.set(clientName.toLowerCase(), matchedClient);
-                    } catch (err) { console.error(err); }
-                }
-            }
+            const clientName = getVal(row, 'Client Name');
+            const clientState = getVal(row, 'Client State') || 'Maharashtra'; 
+            const matchedClient = clientCache.get(clientName.toLowerCase()) || { name: 'Unknown', state: clientState };
+
+            const rawRoe = getVal(row, 'Exchange Rate');
+            const exchangeRate = parseFloat(rawRoe);
+            const isPaid = rawRoe !== '' && !isNaN(exchangeRate) && exchangeRate > 0;
 
             invoicesMap.set(invNo, {
                 id: invNo,
                 invoiceNo: invNo,
-                client: matchedClient || { name: 'Unknown', state: clientState },
+                client: matchedClient,
                 csvClientState: clientState, 
-                date: parseDate(getVal('Date')),
-                currency: getVal('Currency') || 'INR',
-                exchangeRate: parseFloat(getVal('Exchange Rate')) || 1,
-                isLut: String(getVal('Is LUT')).toUpperCase() === 'TRUE',
+                date: parseDate(getVal(row, 'Date')),
+                currency: getVal(row, 'Currency') || 'INR',
+                exchangeRate: exchangeRate || 1,
+                isLut: String(getVal(row, 'Is LUT')).toUpperCase() === 'TRUE',
                 items: [item],
-                status: 'Pending',
+                status: isPaid ? 'Paid' : 'Pending',
                 type: 'Intrastate'
             });
         }
       }
 
-      const newInvoiceIds = Array.from(invoicesMap.keys());
-      const existingIds = new Set(invoices.map(inv => inv.id));
-      const duplicates = newInvoiceIds.filter(id => existingIds.has(id));
-
-      let shouldOverwrite = false;
-      if (duplicates.length > 0) {
-          shouldOverwrite = window.confirm(`Found ${duplicates.length} duplicate Invoices. Overwrite them?`);
-          if (!shouldOverwrite) {
-              duplicates.forEach(id => invoicesMap.delete(id));
-              if (invoicesMap.size === 0) {
-                  addToast("Import cancelled.", "info");
-                  e.target.value = null;
-                  return;
-              }
-          }
-      }
-
+      // 5. Send Invoices (Try Create -> Fail -> Try Update)
       let successCount = 0;
       addToast(`Importing ${invoicesMap.size} invoices...`, "info");
 
       for (const inv of invoicesMap.values()) {
-         if (shouldOverwrite && existingIds.has(inv.id)) {
-             try { await fetch(`http://localhost:5000/api/invoices/${inv.id}`, { method: 'DELETE' }); } catch (e) {}
-         }
-
          const subtotal = inv.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
          const stateToCheck = inv.csvClientState || inv.client.state;
          const isExport = stateToCheck === 'Other';
@@ -387,23 +418,47 @@ export default function App() {
          }
 
          const payload = {
-            ...inv,
+            id: inv.id,
+            client: inv.client,
+            date: inv.date,
             amount: subtotal + tax,
             tax: tax,
+            status: inv.status,
             type: isExport ? (inv.isLut ? 'Export (LUT)' : 'Export') : (isInterstate ? 'Interstate' : 'Intrastate'),
+            currency: inv.currency,
+            exchangeRate: inv.exchangeRate,
+            items: inv.items
          };
 
          try {
-             const res = await fetch('http://localhost:5000/api/invoices', {
+             // A. Try to Create
+             let res = await fetch('http://localhost:5000/api/invoices', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
              });
+
+             // B. If Duplicate (409) and Overwrite is Allowed -> Update
+             if (res.status === 409 || res.status === 500) {
+                 if (allowOverwrite) {
+                     res = await fetch(`http://localhost:5000/api/invoices/${inv.id}`, {
+                        method: 'PUT',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify(payload)
+                     });
+                 } else {
+                     console.log(`Skipping duplicate ${inv.id}`);
+                     continue; // Skip this one
+                 }
+             }
+
              if (res.ok) successCount++;
+             else console.error(`Failed to import ${inv.id}`, await res.text());
+
          } catch (e) { console.error(e); }
       }
 
-      addToast(`Successfully imported ${successCount} invoices!`, "success");
+      addToast(`Imported ${successCount} invoices successfully!`, "success");
       loadData(); 
 
     } catch (err) {
@@ -413,6 +468,7 @@ export default function App() {
     e.target.value = null;
   };
 
+  // --- Navigation Items ---
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'clients', label: 'Clients', icon: Users },
@@ -448,7 +504,7 @@ export default function App() {
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}>
         <div className="h-16 flex items-center px-6 border-b border-slate-200 dark:border-slate-700">
            <div className="w-8 h-8 rounded bg-gradient-to-tr from-[#3194A0] to-cyan-400 flex items-center justify-center text-white font-bold mr-3">I</div>
-           <span className="font-bold text-lg tracking-tight">Invoicer<span className="text-[#3194A0]">Ind</span></span>
+           <span className="font-bold text-lg tracking-tight">Element Tree<span className="text-[#3194A0]"> Invoice</span></span>
         </div>
         <nav className="p-4 space-y-1">
           {navItems.map((item) => (
@@ -498,14 +554,28 @@ export default function App() {
            {activeTab === 'reports' && <Reports invoices={invoices} expenses={expenses} userSettings={userSettings} addToast={addToast} />}
            {activeTab === 'expenses' && <Expenses addToast={addToast} />}
            
-           {activeTab === 'clients' && <ClientManager addToast={addToast} searchQuery={searchQuery} />}
+           {activeTab === 'clients' && <ClientManager addToast={addToast} searchQuery={searchQuery} onUpdate={loadData} />}
            {activeTab === 'settings' && <SettingsPage settings={userSettings} onSave={handleSaveSettings} addToast={addToast} />}
 
            {activeTab === 'invoices' && (
              <div className="space-y-6">
                <div className="flex justify-between items-center">
-                 <h2 className="text-2xl font-bold dark:text-white">All Invoices</h2>
+                 <div className="flex items-center gap-3">
+                    <h2 className="text-2xl font-bold dark:text-white">All Invoices</h2>
+                    <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium border border-slate-200 dark:border-slate-700">
+                        Total: {processedInvoices.length}
+                    </span>
+                 </div>
+                 
                  <div className="flex gap-2">
+                    <div className="w-40">
+                        <Select 
+                            value={selectedFY} 
+                            onChange={(e) => setSelectedFY(e.target.value)} 
+                            options={availableFiscalYears.map(fy => ({ label: fy, value: fy }))}
+                        />
+                    </div>
+
                     <button onClick={handleDownloadInvoiceTemplate} className="flex items-center px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
                        <Download size={16} className="mr-1.5 text-blue-600"/> Template
                     </button>
@@ -546,7 +616,7 @@ export default function App() {
                          </tr>
                        ))}
                        {processedInvoices.length === 0 && (
-                          <tr><td colSpan="6" className="text-center py-6 text-slate-500">No invoices found matching "{searchQuery}"</td></tr>
+                          <tr><td colSpan="6" className="text-center py-6 text-slate-500">No invoices found matching "{searchQuery}" in {selectedFY}</td></tr>
                        )}
                      </tbody>
                    </table>
