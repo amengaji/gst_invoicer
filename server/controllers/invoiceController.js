@@ -2,9 +2,9 @@ const db = require('../config/db');
 
 exports.getAllInvoices = async (req, res) => {
     try {
-        // Fetch invoices with a simpler JOIN to avoid JSON build errors
         const invResult = await db.query(`
-            SELECT i.*, 
+            SELECT i.id, i.client_id, i.amount, i.tax, i.status, i.type, i.currency, i.exchange_rate,
+            TO_CHAR(i.date, 'YYYY-MM-DD') as date,  -- <--- FIX: Force Date as String
             c.name as client_name, 
             c.gstin as client_gstin, 
             c.state as client_state, 
@@ -19,11 +19,9 @@ exports.getAllInvoices = async (req, res) => {
 
         const invoices = invResult.rows;
         
-        // Fetch items for each invoice
         for (let inv of invoices) {
             const itemsResult = await db.query('SELECT * FROM invoice_items WHERE invoice_id = $1', [inv.id]);
             
-            // Reconstruct the 'client' object structure the frontend expects
             inv.client = {
                 id: inv.client_id,
                 name: inv.client_name,
@@ -35,18 +33,13 @@ exports.getAllInvoices = async (req, res) => {
                 contacts: inv.client_contacts
             };
 
-            // Cleanup flat fields
-            delete inv.client_name;
-            delete inv.client_gstin;
-            delete inv.client_state;
-            delete inv.client_address;
-            delete inv.client_city;
-            delete inv.client_country;
-            delete inv.client_contacts;
+            // Cleanup
+            delete inv.client_name; delete inv.client_gstin; delete inv.client_state;
+            delete inv.client_address; delete inv.client_city; delete inv.client_country; delete inv.client_contacts;
 
             inv.items = itemsResult.rows.map(item => ({
                 ...item,
-                desc: item.description, // Map DB column to frontend key
+                desc: item.description, 
                 qty: parseFloat(item.qty),
                 price: parseFloat(item.price)
             }));

@@ -15,6 +15,8 @@ router.delete('/clients/:id', clientController.deleteClient);
 // --- Expense Routes ---
 router.get('/expenses', expenseController.getAllExpenses);
 router.post('/expenses', expenseController.createExpense);
+router.put('/expenses/:id', expenseController.updateExpense);    // <--- Added
+router.delete('/expenses/:id', expenseController.deleteExpense); // <--- Added
 
 // --- Invoice Routes ---
 router.get('/invoices', invoiceController.getAllInvoices);

@@ -25,7 +25,7 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
 
   useEffect(() => {
     if (editingInvoice) {
-        // 1. Map DB items (description) to Frontend items (desc)
+        // 1. Map Items
         const mappedItems = (editingInvoice.items || []).map(item => ({
             ...item,
             desc: item.description || item.desc || '', 
@@ -34,13 +34,29 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
         }));
         setItems(mappedItems.length > 0 ? mappedItems : [{ id: 1, desc: '', hsn: '', qty: 1, price: 0 }]);
 
-        // 2. Set Client
-        setClient(editingInvoice.client || {});
+        // 2. Set Client (Fixing State Mismatch)
+        const loadedClient = editingInvoice.client || {};
+        
+        // Normalize State: Check if it matches 'Other' or one of the STATES
+        let fixedState = loadedClient.state || 'Maharashtra';
+        // Case-insensitive check against 'Other'
+        if (fixedState.toLowerCase() === 'other') fixedState = 'Other';
+        // If it's not in our list and not Other, keep it (or default to Maharashtra)
+        // ideally we trust the DB, but ensure the casing matches the dropdown if possible.
 
-        // 3. Set Settings
+        setClient({
+            ...loadedClient,
+            state: fixedState
+        });
+
+        // 3. Set Settings (Fixing Date Shift)
         setSettings({
             invoiceNo: editingInvoice.id,
-            date: editingInvoice.date ? editingInvoice.date.split('T')[0] : new Date().toISOString().split('T')[0],
+            // Backend now sends "YYYY-MM-DD" string, so use it directly. 
+            // Fallback to split only if it contains 'T' (old data)
+            date: editingInvoice.date && editingInvoice.date.includes('T') 
+                  ? editingInvoice.date.split('T')[0] 
+                  : (editingInvoice.date || new Date().toISOString().split('T')[0]),
             currency: editingInvoice.currency,
             myState: userSettings.state, 
             isLut: editingInvoice.type?.includes('LUT') || false,
@@ -116,7 +132,6 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
   };
 
   return (
-    // CHANGED: max-w-4xl -> max-w-7xl (Much wider container)
     <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between mb-6">
         <div>
@@ -174,12 +189,11 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">Items</h3>
             <div className="space-y-3">
-              {/* CHANGED: Grid Layout increased to gap-4 and wider columns for Qty/Price */}
               <div className="grid grid-cols-12 gap-4 text-xs font-medium text-slate-500 px-2">
                 <div className="col-span-5">Description</div>
                 <div className="col-span-2">HSN/SAC</div>
-                <div className="col-span-2 text-center">Qty</div> {/* Increased from 1 */}
-                <div className="col-span-2 text-right">Price</div> {/* Decreased from 3 to balance */}
+                <div className="col-span-2 text-center">Qty</div>
+                <div className="col-span-2 text-right">Price</div>
                 <div className="col-span-1"></div>
               </div>
               {items.map((item, index) => (
