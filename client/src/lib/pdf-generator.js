@@ -28,11 +28,13 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
 
     const safe = (text) => (text || "").toString();
 
+// --- SMART FORMATTING ---
+    // Use 'en-IN' for Lakhs (1,00,000), 'en-US' for Millions (100,000) based on settings
+    const locale = userSettings.number_format === 'US' ? 'en-US' : 'en-IN';
+
     const formatCurrency = (val) => {
-      const num = parseFloat(val) || 0;
-      return `${safe(invoice.currency)} ${num.toLocaleString(undefined, {
-        minimumFractionDigits: 2,
-      })}`;
+        const num = parseFloat(val) || 0;
+        return `${safe(invoice.currency)} ${num.toLocaleString(locale, {minimumFractionDigits: 2, maximumFractionDigits: 2})}`;
     };
 
     const drawBox = (x, y, w, h, bg, border) => {
@@ -235,16 +237,17 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
 
     const tableColumn = ["Description", "HSN/SAC", "Qty", "Price", "Total"];
     const items = Array.isArray(invoice.items) ? invoice.items : [];
-    const tableRows = items.map((item) => [
+    const tableRows = invoice.items.map((item) => [
       safe(item.desc || item.description),
       safe(item.hsn) || "-",
       parseFloat(item.qty) || 0,
-      (parseFloat(item.price) || 0).toLocaleString(undefined, {
-        minimumFractionDigits: 2,
+      // Use the locale variable defined above
+      (parseFloat(item.price) || 0).toLocaleString(locale, {
+        minimumFractionDigits: 2, maximumFractionDigits: 2
       }),
       (
         (parseFloat(item.qty) || 0) * (parseFloat(item.price) || 0)
-      ).toLocaleString(undefined, { minimumFractionDigits: 2 }),
+      ).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
     ]);
 
     autoTable(doc, {

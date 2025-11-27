@@ -9,7 +9,8 @@ import { STATES, CURRENCIES } from '../../lib/constants';
 const SettingsPage = ({ settings, onSave, addToast }) => {
   const [formData, setFormData] = useState({
       ...settings,
-      bank_accounts: settings.bank_accounts || []
+      bank_accounts: settings.bank_accounts || [],
+      number_format: settings.number_format || 'IN' // Default to Indian
   });
   const [saved, setSaved] = useState(false);
 
@@ -143,6 +144,15 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
             <h3 className="font-semibold text-lg dark:text-white">Preferences</h3>
           </div>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <Select 
+                label="Number Format" 
+                value={formData.number_format} 
+                onChange={(e) => handleChange('number_format', e.target.value)} 
+                options={[ 
+                    {label: "Indian (1,00,000)", value: "IN"}, 
+                    {label: "International (100,000)", value: "US"} 
+                ]} 
+            />
             <Select label="Filing Frequency" value={formData.filingFrequency} onChange={(e) => handleChange('filingFrequency', e.target.value)} options={[ {label: "Monthly", value: "Monthly"}, {label: "Quarterly", value: "Quarterly"} ]} />
             <Input label="Default Invoice Prefix" value={formData.invoicePrefix} onChange={e => handleChange('invoicePrefix', e.target.value)} />
             <Select label="Default Currency" value={formData.currency} onChange={(e) => handleChange('currency', e.target.value)} options={CURRENCIES} />
