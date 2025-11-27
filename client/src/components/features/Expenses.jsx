@@ -3,11 +3,17 @@ import { Receipt, Plus, Paperclip, Trash2, Loader2, Edit, Copy, IndianRupee, Pie
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
+import Pagination from '../ui/Pagination';
 
 const Expenses = ({ addToast }) => {
   const [expenses, setExpenses] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
-  
+
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 5;
+
+
   // Form State
   const initialForm = { category: '', date: new Date().toISOString().split('T')[0], amount: '', gst_paid: '', receipt: null, receiptName: '' };
   const [form, setForm] = useState(initialForm);
@@ -142,6 +148,11 @@ const Expenses = ({ addToast }) => {
     }
   };
 
+  const paginatedExpenses = expenses.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+    );
+
   if (isLoading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/> Loading Expenses...</div>;
 
   return (
@@ -214,7 +225,7 @@ const Expenses = ({ addToast }) => {
 
         {/* List */}
         <div className="lg:col-span-2 space-y-4 max-h-[600px] overflow-y-auto">
-          {expenses.map((exp) => (
+          {paginatedExpenses.map((exp) => (
             <Card key={exp.id} className="p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4 group">
               <div className="flex items-center gap-4">
                 <div className="h-10 w-10 rounded-full bg-slate-100 dark:bg-slate-800 flex items-center justify-center text-slate-500 shrink-0">
@@ -248,8 +259,15 @@ const Expenses = ({ addToast }) => {
               </div>
             </Card>
           ))}
+          
           {expenses.length === 0 && <p className="text-center text-slate-500 py-10">No expenses recorded yet.</p>}
         </div>
+        <Pagination 
+         currentPage={currentPage}
+         totalItems={expenses.length}
+         pageSize={ITEMS_PER_PAGE}
+         onPageChange={setCurrentPage}
+        />
       </div>
     </div>
   );

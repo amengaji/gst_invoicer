@@ -10,6 +10,7 @@ import Badge from './components/ui/Badge';
 import Card from './components/ui/Card';
 import Button from './components/ui/Button';
 import Select from './components/ui/Select'; 
+import Pagination from './components/ui/Pagination';
 
 // Features
 import Dashboard from './components/features/Dashboard';
@@ -34,6 +35,9 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [clients, setClients] = useState([]);
+
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
   
   const [userSettings, setUserSettings] = useState({
      companyName: 'My Tech Company',
@@ -108,6 +112,10 @@ export default function App() {
     if (darkMode) document.documentElement.classList.add('dark');
     else document.documentElement.classList.remove('dark');
   }, [darkMode]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchQuery, selectedFY]);
 
   // --- Handlers ---
   const addToast = (message, type = 'success') => {
@@ -269,6 +277,12 @@ export default function App() {
     }
     return data;
   }, [invoices, searchQuery, sortConfig, selectedFY]);
+
+  // --- Pagination Logic ---
+  const paginatedInvoices = useMemo(() => {
+    const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
+    return processedInvoices.slice(startIndex, startIndex + ITEMS_PER_PAGE);
+  }, [processedInvoices, currentPage]);
 
 
   // --- Invoice Import Logic ---
@@ -600,7 +614,7 @@ export default function App() {
                        </tr>
                      </thead>
                      <tbody>
-                       {processedInvoices.map((inv) => (
+                       {paginatedInvoices.map((inv) => (
                          <tr key={inv.id} className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
                            <td className="px-6 py-4 font-medium">{inv.id}</td>
                            <td className="px-6 py-4">{inv.client?.name || 'Unknown'}</td>
@@ -620,7 +634,13 @@ export default function App() {
                        )}
                      </tbody>
                    </table>
-                 </div>
+                  <Pagination 
+                      currentPage={currentPage}
+                      totalItems={processedInvoices.length}
+                      pageSize={ITEMS_PER_PAGE}
+                      onPageChange={setCurrentPage}
+                  />
+                  </div> {/* End of overflow-x-auto */}
                </Card>
              </div>
            )}

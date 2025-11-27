@@ -6,6 +6,7 @@ import Button from '../ui/Button';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Badge from '../ui/Badge';
+import Pagination from '../ui/Pagination';
 import { STATES, INITIAL_CLIENT_STATE } from '../../lib/constants';
 
 const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
@@ -14,6 +15,8 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [newClient, setNewClient] = useState(INITIAL_CLIENT_STATE);
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 9; // 3x3 Grid
 
   // --- API: Fetch Clients ---
   const fetchClients = async () => {
@@ -37,6 +40,10 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
       setIsLoading(false);
     }
   };
+
+
+  useEffect(() => { setCurrentPage(1); }, [searchQuery]);
+
 
   useEffect(() => {
     fetchClients();
@@ -219,6 +226,14 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
      (c.city && c.city.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
+  // --- ADD THIS BLOCK ---
+  const paginatedClients = filteredClients.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+  // ----------------------
+
+
   if (isLoading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/> Loading Clients...</div>;
 
   return (
@@ -293,7 +308,7 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
       )}
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-        {filteredClients.map(client => (
+        {paginatedClients.map(client => (
           <Card key={client.id} className="p-5 flex flex-col justify-between group h-full">
             <div>
               <div className="flex justify-between items-start">
@@ -323,6 +338,14 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
           </Card>
         ))}
       </div>
+      <div className="mt-6">
+        <Pagination 
+            currentPage={currentPage}
+            totalItems={filteredClients.length}
+            pageSize={ITEMS_PER_PAGE}
+            onPageChange={setCurrentPage}
+        />
+    </div>
     </div>
   )
 }
