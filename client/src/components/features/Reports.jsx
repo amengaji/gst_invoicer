@@ -1,113 +1,155 @@
-import React, { useState } from 'react';
-import { Archive } from 'lucide-react';
+import React, { useState, useMemo } from 'react';
+import { Archive, Calendar, Download, FileText, AlertCircle } from 'lucide-react';
 import JSZip from 'jszip';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
+import Select from '../ui/Select'; // Ensure Select is imported
 import { generateCSV, getQuarter } from '../../lib/utils';
 
-const Reports = ({ invoices, expenses, userSettings, addToast }) => {
+const Reports = ({ invoices = [], expenses = [], userSettings, addToast }) => {
   const [periodType, setPeriodType] = useState(userSettings.filingFrequency || 'Monthly'); 
   const [selectedMonth, setSelectedMonth] = useState(new Date().toISOString().slice(0, 7)); 
-  const [selectedQuarter, setSelectedQuarter] = useState('Q3 (Oct-Dec)');
+  const [selectedQuarter, setSelectedQuarter] = useState('Q1 (Apr-Jun)'); // Default
   const [isZipping, setIsZipping] = useState(false);
 
-  // Filter Data
-  const filteredInvoices = invoices.filter(inv => {
-    if (!inv.date) return false;
-    if (periodType === 'Monthly') return inv.date.startsWith(selectedMonth);
-    return getQuarter(inv.date) === selectedQuarter; 
-  });
+  // --- 1. Safe Data Filtering ---
+  const { filteredInvoices, filteredExpenses } = useMemo(() => {
+      const safeInvoices = Array.isArray(invoices) ? invoices : [];
+      const safeExpenses = Array.isArray(expenses) ? expenses : [];
 
-  const filteredExpenses = expenses.filter(exp => {
-    if (!exp.date) return false;
-    if (periodType === 'Monthly') return exp.date.startsWith(selectedMonth);
-    return getQuarter(exp.date) === selectedQuarter;
-  });
+      const filterByDate = (item) => {
+          if (!item.date) return false;
+          try {
+              const dateStr = item.date.includes('T') ? item.date.split('T')[0] : item.date;
+              if (periodType === 'Monthly') {
+                  return dateStr.startsWith(selectedMonth);
+              } else {
+                  return getQuarter(dateStr) === selectedQuarter;
+              }
+          } catch (e) {
+              return false;
+          }
+      };
 
-  // Calculations
+      return {
+          filteredInvoices: safeInvoices.filter(filterByDate),
+          filteredExpenses: safeExpenses.filter(filterByDate)
+      };
+  }, [invoices, expenses, periodType, selectedMonth, selectedQuarter]);
+
+  // --- 2. Calculations ---
   const totalLiability = filteredInvoices.reduce((acc, i) => acc + (parseFloat(i.tax) || 0), 0);
   const eligibleItc = filteredExpenses.reduce((acc, i) => acc + (parseFloat(i.gst_paid) || 0), 0);
   const netPayable = Math.max(0, totalLiability - eligibleItc);
 
+  // --- 3. Download Logic ---
   const handleDownloadZip = async () => {
+    if (filteredInvoices.length === 0 && filteredExpenses.length === 0) {
+        addToast("No data found for this period to generate a report.", "error");
+        return;
+    }
+
     setIsZipping(true);
     addToast("Preparing CA Filing Bundle...", "info");
+    
     try {
       const zip = new JSZip();
+      const periodLabel = periodType === 'Monthly' ? selectedMonth : selectedQuarter;
 
-      // 1. GSTR-1 JSON (Mock Structure for example)
+      // A. GSTR-1 JSON (Simplified Structure)
       const gstr1Data = {
         gstin: userSettings.gstin,
-        fp: periodType === 'Monthly' ? selectedMonth.replace('-', '') : selectedQuarter,
+        fp: periodLabel,
         b2b: filteredInvoices.map(inv => ({ 
             ctin: inv.client?.gstin || "", 
-            inv: [{ inum: inv.id, idt: inv.date, val: inv.amount }] 
+            inv: [{ inum: inv.id, idt: inv.date, val: parseFloat(inv.amount) || 0 }] 
         })),
       };
       zip.file("GSTR1_Report.json", JSON.stringify(gstr1Data, null, 2));
 
-      // 2. CSV Summaries
-      const safeClientName = (client) => typeof client === 'object' && client !== null ? client.name : client;
+      // B. CSV Summaries
+      const safeClientName = (client) => {
+          if (!client) return 'Unknown';
+          return typeof client === 'object' ? (client.name || '') : String(client);
+      };
 
-      zip.file("Sales_Register.csv", generateCSV(filteredInvoices.map(i => ({
+      const salesData = filteredInvoices.map(i => ({
         ID: i.id, 
         Date: i.date, 
         Client: safeClientName(i.client), 
-        Tax: i.tax, 
-        Total: i.amount
-      }))));
+        GSTIN: i.client?.gstin || '',
+        Taxable: (parseFloat(i.amount) - parseFloat(i.tax)).toFixed(2),
+        Tax: (parseFloat(i.tax) || 0).toFixed(2), 
+        Total: (parseFloat(i.amount) || 0).toFixed(2)
+      }));
+      zip.file("Sales_Register.csv", generateCSV(salesData));
       
-      zip.file("Expense_Register.csv", generateCSV(filteredExpenses.map(e => ({
+      const expenseData = filteredExpenses.map(e => ({
           ID: e.id, 
           Date: e.date, 
           Category: e.category, 
           Amount: e.amount, 
           ITC: e.gst_paid
-      }))));
+      }));
+      zip.file("Expense_Register.csv", generateCSV(expenseData));
 
-      // 3. CA Instruction Note
+      // C. Summary Note
       const summaryText = `
         GST Filing Summary
         ------------------
-        Period: ${periodType === 'Monthly' ? selectedMonth : selectedQuarter}
+        Period: ${periodLabel}
         Company: ${userSettings.companyName}
         GSTIN: ${userSettings.gstin}
         
-        Total Outward Liability: ₹${totalLiability}
-        Total Input Tax Credit: ₹${eligibleItc}
-        Net Payable (Cash Ledger): ₹${netPayable}
+        TOTAL SALES:
+        - Count: ${filteredInvoices.length}
+        - Total Tax Collected: ₹${totalLiability.toLocaleString()}
         
-        Generated by InvoicerInd
+        TOTAL EXPENSES:
+        - Count: ${filteredExpenses.length}
+        - Total ITC Available: ₹${eligibleItc.toLocaleString()}
+        
+        NET PAYABLE (Cash Ledger): ₹${netPayable.toLocaleString()}
+        
+        Generated by Elementree Invoicer
       `;
       zip.file("Summary_Note.txt", summaryText);
 
-      // 4. Expense Receipts Folder
+      // D. Receipts Folder
       const receiptsFolder = zip.folder("Expense_Receipts");
       filteredExpenses.forEach(exp => {
         if (exp.receipt_data) {
-            // Remove Data URL prefix
-            const base64Data = exp.receipt_data.split(',')[1]; 
-            if (base64Data) {
-                const fileName = `${exp.id}_${exp.receipt_name || 'receipt.jpg'}`;
-                receiptsFolder.file(fileName, base64Data, {base64: true});
+            try {
+                // Detect Data URI format
+                const parts = exp.receipt_data.split(',');
+                const base64Data = parts.length > 1 ? parts[1] : parts[0];
+                
+                if (base64Data) {
+                    // Simple check to guess extension
+                    const ext = exp.receipt_data.includes('pdf') ? 'pdf' : 'jpg';
+                    const fileName = `${exp.id}_${(exp.receipt_name || 'receipt').replace(/\s+/g, '_')}.${ext}`;
+                    receiptsFolder.file(fileName, base64Data, {base64: true});
+                }
+            } catch (err) {
+                console.warn("Failed to zip receipt", exp.id);
             }
         }
       });
 
-      // Generate Zip
+      // Generate & Save
       const content = await zip.generateAsync({type:"blob"});
       const url = URL.createObjectURL(content);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `GST_Filing_${userSettings.companyName}_${periodType === 'Monthly' ? selectedMonth : selectedQuarter}.zip`;
+      a.download = `GST_Filing_${periodLabel}.zip`;
       a.click();
       URL.revokeObjectURL(url);
       addToast("Filing bundle downloaded successfully!", "success");
 
     } catch (e) {
       console.error("ZIP Generation failed", e);
-      addToast("Failed to generate ZIP.", "error");
+      addToast("Failed to generate ZIP. Check console.", "error");
     } finally {
       setIsZipping(false);
     }
@@ -115,78 +157,104 @@ const Reports = ({ invoices, expenses, userSettings, addToast }) => {
 
   return (
     <div className="space-y-6">
-       <div className="flex flex-col md:flex-row justify-between items-end gap-4">
+       {/* Header Control */}
+       <div className="flex flex-col md:flex-row justify-between items-end gap-4 bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm">
          <div>
-           <h2 className="text-2xl font-bold dark:text-white">Tax Reports & Filing</h2>
-           <p className="text-slate-500 text-sm">Consolidated data for your Chartered Accountant</p>
+           <h2 className="text-2xl font-bold dark:text-white flex items-center gap-2">
+               <FileText className="text-[#3194A0]" /> Tax Reports & Filing
+           </h2>
+           <p className="text-slate-500 text-sm mt-1">Generate monthly/quarterly data for your CA</p>
          </div>
          
-         <div className="flex gap-2 items-center bg-white dark:bg-slate-800 p-2 rounded-lg border border-slate-200 dark:border-slate-700">
+         <div className="flex gap-3 items-center">
             <div className="flex rounded-md bg-slate-100 dark:bg-slate-700 p-1">
-              <button onClick={() => setPeriodType('Monthly')} className={`px-3 py-1 text-xs font-medium rounded ${periodType === 'Monthly' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>Monthly</button>
-              <button onClick={() => setPeriodType('Quarterly')} className={`px-3 py-1 text-xs font-medium rounded ${periodType === 'Quarterly' ? 'bg-white shadow text-slate-900' : 'text-slate-500'}`}>Quarterly</button>
+              <button onClick={() => setPeriodType('Monthly')} className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${periodType === 'Monthly' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Monthly</button>
+              <button onClick={() => setPeriodType('Quarterly')} className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${periodType === 'Quarterly' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700'}`}>Quarterly</button>
             </div>
             
-            {periodType === 'Monthly' ? (
-               <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="bg-transparent border-none text-sm focus:ring-0" />
-            ) : (
-               <select value={selectedQuarter} onChange={(e) => setSelectedQuarter(e.target.value)} className="bg-transparent border-none text-sm focus:ring-0">
-                 <option>Q1 (Apr-Jun)</option>
-                 <option>Q2 (Jul-Sep)</option>
-                 <option>Q3 (Oct-Dec)</option>
-                 <option>Q4 (Jan-Mar)</option>
-               </select>
-            )}
+            <div className="w-40">
+                {periodType === 'Monthly' ? (
+                   <input 
+                      type="month" 
+                      value={selectedMonth} 
+                      onChange={(e) => setSelectedMonth(e.target.value)} 
+                      className="flex h-10 w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-[#3194A0] dark:border-slate-600 dark:text-white" 
+                   />
+                ) : (
+                   <Select 
+                      value={selectedQuarter} 
+                      onChange={(e) => setSelectedQuarter(e.target.value)} 
+                      options={[
+                          { label: "Q1 (Apr-Jun)", value: "Q1 (Apr-Jun)" },
+                          { label: "Q2 (Jul-Sep)", value: "Q2 (Jul-Sep)" },
+                          { label: "Q3 (Oct-Dec)", value: "Q3 (Oct-Dec)" },
+                          { label: "Q4 (Jan-Mar)", value: "Q4 (Jan-Mar)" }
+                      ]}
+                   />
+                )}
+            </div>
          </div>
        </div>
 
+       {/* Stats Cards */}
        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="p-6">
+          <Card className="p-6 border-l-4 border-l-[#3194A0]">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-slate-800 dark:text-white">Summary of Outward Supplies</h3>
+              <h3 className="font-bold text-slate-800 dark:text-white">Output Tax Liability</h3>
               <Badge type="primary">{filteredInvoices.length} Invoices</Badge>
             </div>
             <div className="space-y-4">
-              <div className="flex justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded">
-                <span className="text-sm text-slate-600 dark:text-slate-400">Total Liability (Tax Collected)</span>
-                <span className="font-semibold dark:text-white">₹{totalLiability.toLocaleString()}</span>
+              <div className="flex justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-700">
+                <span className="text-sm text-slate-600 dark:text-slate-400">Tax Collected</span>
+                <span className="font-semibold dark:text-white">₹{totalLiability.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
               </div>
-              <div className="pt-2 border-t dark:border-slate-700 flex justify-between">
-                 <span className="font-bold text-slate-800 dark:text-white">Net Tax Liability</span>
-                 <span className="font-bold text-slate-800 dark:text-white">₹{totalLiability.toLocaleString()}</span>
+              <div className="pt-2 flex justify-between text-lg">
+                 <span className="font-bold text-slate-800 dark:text-white">Total Liability</span>
+                 <span className="font-bold text-[#3194A0]">₹{totalLiability.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
               </div>
             </div>
           </Card>
 
-          <Card className="p-6">
+          <Card className="p-6 border-l-4 border-l-emerald-500">
             <div className="flex justify-between items-center mb-6">
-              <h3 className="font-bold text-slate-800 dark:text-white">Input Tax Credit</h3>
+              <h3 className="font-bold text-slate-800 dark:text-white">Input Tax Credit (ITC)</h3>
               <Badge type="warning">{filteredExpenses.length} Expenses</Badge>
             </div>
              <div className="space-y-4">
-              <div className="flex justify-between p-3 bg-slate-50 dark:bg-slate-800 rounded">
-                <span className="text-sm text-slate-600 dark:text-slate-400">Eligible ITC (From Expenses)</span>
-                <span className="font-semibold dark:text-white">₹{eligibleItc.toLocaleString()}</span>
+              <div className="flex justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-700">
+                <span className="text-sm text-slate-600 dark:text-slate-400">Eligible ITC</span>
+                <span className="font-semibold dark:text-white">₹{eligibleItc.toLocaleString(undefined, {minimumFractionDigits: 2})}</span>
               </div>
-              <div className="pt-2 border-t dark:border-slate-700 flex justify-between">
-                 <span className="font-bold text-slate-800 dark:text-white">Net Payable in Cash</span>
+              <div className="pt-2 flex justify-between text-lg border-t dark:border-slate-700">
+                 <span className="font-bold text-slate-800 dark:text-white">Net Payable (Cash)</span>
                  <span className={`font-bold ${netPayable > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                   ₹{netPayable.toLocaleString()}
+                   ₹{netPayable.toLocaleString(undefined, {minimumFractionDigits: 2})}
                  </span>
               </div>
             </div>
           </Card>
        </div>
        
-       <Card className="p-8 bg-gradient-to-br from-slate-800 to-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-6">
+       {/* Download Action */}
+       <Card className="p-8 bg-gradient-to-br from-slate-800 to-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-lg">
          <div>
            <h3 className="text-xl font-bold flex items-center gap-2"><Archive size={24} className="text-emerald-400"/> CA Filing Bundle</h3>
-           <p className="text-slate-400 text-sm mt-2 max-w-md">
-             Download a consolidated ZIP file containing the GSTR-1 JSON, Sales Register (CSV), Expense Register (CSV), receipts, and a summary note.
+           <p className="text-slate-300 text-sm mt-2 max-w-md leading-relaxed">
+             Generate a ZIP file containing:
+             <ul className="list-disc list-inside mt-1 text-slate-400 text-xs">
+                 <li>GSTR-1 Data (JSON)</li>
+                 <li>Sales & Expense Registers (CSV)</li>
+                 <li>Receipt Images</li>
+             </ul>
            </p>
          </div>
-         <Button onClick={handleDownloadZip} loading={isZipping} className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 h-12">
-           {isZipping ? "Generating ZIP..." : "Download CA Bundle (.zip)"}
+         <Button 
+            onClick={handleDownloadZip} 
+            loading={isZipping} 
+            disabled={filteredInvoices.length === 0 && filteredExpenses.length === 0}
+            className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 h-12 shadow-xl shadow-emerald-900/20"
+         >
+           {isZipping ? "Generating Bundle..." : "Download CA Bundle (.zip)"}
          </Button>
        </Card>
     </div>
