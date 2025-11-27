@@ -19,6 +19,7 @@ import Reports from './components/features/Reports';
 import ClientManager from './components/features/ClientManager';
 import CreateInvoice from './components/features/CreateInvoice';
 import SettingsPage from './components/features/SettingsPage';
+import InvoiceViewModal from './components/features/InvoiceViewModal';
 import { generateInvoicePDF } from './lib/pdf-generator';
 
 export default function App() {
@@ -35,9 +36,9 @@ export default function App() {
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [clients, setClients] = useState([]);
-
-  const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 10;
+  
+  // --- View Modal State ---
+  const [viewingInvoice, setViewingInvoice] = useState(null);
   
   const [userSettings, setUserSettings] = useState({
      companyName: 'My Tech Company',
@@ -50,6 +51,10 @@ export default function App() {
      filingFrequency: 'Monthly',
      bank_accounts: []
   });
+
+  // --- Pagination ---
+  const [currentPage, setCurrentPage] = useState(1);
+  const ITEMS_PER_PAGE = 10;
 
   // --- Modals & Toasts ---
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
@@ -79,7 +84,6 @@ export default function App() {
             fetch('http://localhost:5000/api/settings')
         ]);
         
-        // CRASH FIX: Verify data is array before setting
         const invData = await invRes.json();
         setInvoices(Array.isArray(invData) ? invData : []);
 
@@ -127,7 +131,6 @@ export default function App() {
 
   const handleSaveInvoice = async (newInvoice) => {
     try {
-        // Safe Check
         const safeInvoices = Array.isArray(invoices) ? invoices : [];
         const isUpdate = safeInvoices.some(inv => inv.id === newInvoice.id);
         
@@ -207,7 +210,8 @@ export default function App() {
               filing_frequency: newSettings.filingFrequency,
               logo: newSettings.logo,
               lut_number: newSettings.lutNumber,
-              bank_accounts: newSettings.bank_accounts
+              bank_accounts: newSettings.bank_accounts,
+              number_format: newSettings.number_format
           };
 
           await fetch('http://localhost:5000/api/settings', {
@@ -223,16 +227,13 @@ export default function App() {
       }
   }
 
-  // --- Sorting Handler ---
+  // --- Sorting & Filtering ---
   const handleSort = (key) => {
     let direction = 'asc';
-    if (sortConfig.key === key && sortConfig.direction === 'asc') {
-      direction = 'desc';
-    }
+    if (sortConfig.key === key && sortConfig.direction === 'asc') direction = 'desc';
     setSortConfig({ key, direction });
   };
 
-  // --- Derive Available FYs ---
   const availableFiscalYears = useMemo(() => {
       const safeInvoices = Array.isArray(invoices) ? invoices : [];
       const years = new Set();
@@ -244,7 +245,6 @@ export default function App() {
       return Array.from(years).sort().reverse();
   }, [invoices]);
 
-  // --- Filtering & Sorting Logic ---
   const processedInvoices = useMemo(() => {
     const safeInvoices = Array.isArray(invoices) ? invoices : [];
     let data = safeInvoices.filter(inv => 
@@ -278,14 +278,12 @@ export default function App() {
     return data;
   }, [invoices, searchQuery, sortConfig, selectedFY]);
 
-  // --- Pagination Logic ---
   const paginatedInvoices = useMemo(() => {
     const startIndex = (currentPage - 1) * ITEMS_PER_PAGE;
     return processedInvoices.slice(startIndex, startIndex + ITEMS_PER_PAGE);
   }, [processedInvoices, currentPage]);
 
-
-  // --- Invoice Import Logic ---
+  // --- Invoice Import ---
   const handleDownloadInvoiceTemplate = () => {
     const headers = "Invoice No,Date,Client Name,Client State,Currency,Exchange Rate,Item Desc,Item HSN,Item Qty,Item Price,Is LUT\n";
     const sampleRow1 = "INV-001,01-04-2025,Acme Corp,Maharashtra,INR,1,Web Dev Services,9983,1,50000,FALSE\n";
@@ -298,13 +296,10 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-// --- FIXED: Import Logic with Correct Overwrite Handling ---
-// --- Fail-Safe Invoice Import Logic ---
   const handleInvoiceFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Ask for overwrite permission upfront
     const allowOverwrite = window.confirm("If duplicate Invoice IDs are found, do you want to OVERWRITE them?\n\nClick OK to Overwrite.\nClick Cancel to Skip duplicates.");
 
     try {
@@ -314,21 +309,16 @@ export default function App() {
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-      // Helper: Safe Value Getter
       const getVal = (row, key) => {
            const val = row[key] || row[key.toLowerCase()] || row[key.toUpperCase()];
            return val !== undefined && val !== null ? String(val).trim() : '';
       };
 
-      // 1. Setup Client Cache
       const clientCache = new Map();
       if (Array.isArray(clients)) {
-          clients.forEach(c => {
-              if (c.name) clientCache.set(c.name.toLowerCase(), c);
-          });
+          clients.forEach(c => { if (c.name) clientCache.set(c.name.toLowerCase(), c); });
       }
 
-      // 2. Date Parser
       const parseDate = (dateStr) => {
          try {
              if (!dateStr) return new Date().toISOString().split('T')[0];
@@ -346,7 +336,7 @@ export default function App() {
          } catch (e) { return new Date().toISOString().split('T')[0]; }
       };
 
-      // 3. Create Missing Clients
+      // Auto-Create Clients
       const uniqueNewClients = new Map();
       for (const row of jsonData) {
           const name = getVal(row, 'Client Name');
@@ -372,7 +362,7 @@ export default function App() {
           } catch(e) { console.error("Client create error", e); }
       }
 
-      // 4. Group Invoices
+      // Group Invoices
       const invoicesMap = new Map();
       for (const row of jsonData) {
         const invNo = getVal(row, 'Invoice No');
@@ -391,7 +381,6 @@ export default function App() {
             const clientName = getVal(row, 'Client Name');
             const clientState = getVal(row, 'Client State') || 'Maharashtra'; 
             const matchedClient = clientCache.get(clientName.toLowerCase()) || { name: 'Unknown', state: clientState };
-
             const rawRoe = getVal(row, 'Exchange Rate');
             const exchangeRate = parseFloat(rawRoe);
             const isPaid = rawRoe !== '' && !isNaN(exchangeRate) && exchangeRate > 0;
@@ -412,24 +401,26 @@ export default function App() {
         }
       }
 
-      // 5. Send Invoices (Try Create -> Fail -> Try Update)
       let successCount = 0;
-      addToast(`Importing ${invoicesMap.size} invoices...`, "info");
-
       for (const inv of invoicesMap.values()) {
+         // Check overwrite
+         const safeInvoices = Array.isArray(invoices) ? invoices : [];
+         const exists = safeInvoices.some(i => i.id === inv.id);
+
+         if (exists && !allowOverwrite) continue;
+         if (exists && allowOverwrite) {
+             try { await fetch(`http://localhost:5000/api/invoices/${inv.id}`, { method: 'DELETE' }); } catch (e) {}
+         }
+
          const subtotal = inv.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
          const stateToCheck = inv.csvClientState || inv.client.state;
          const isExport = stateToCheck === 'Other';
          const isInterstate = stateToCheck !== userSettings.state;
          
          let tax = 0;
-         if (isExport) {
-             if (!inv.isLut) tax = subtotal * 0.18; 
-         } else if (isInterstate) {
-             tax = subtotal * 0.18;
-         } else {
-             tax = subtotal * 0.18;
-         }
+         if (isExport) { if (!inv.isLut) tax = subtotal * 0.18; } 
+         else if (isInterstate) { tax = subtotal * 0.18; } 
+         else { tax = subtotal * 0.18; }
 
          const payload = {
             id: inv.id,
@@ -445,30 +436,12 @@ export default function App() {
          };
 
          try {
-             // A. Try to Create
-             let res = await fetch('http://localhost:5000/api/invoices', {
+             const res = await fetch('http://localhost:5000/api/invoices', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
              });
-
-             // B. If Duplicate (409) and Overwrite is Allowed -> Update
-             if (res.status === 409 || res.status === 500) {
-                 if (allowOverwrite) {
-                     res = await fetch(`http://localhost:5000/api/invoices/${inv.id}`, {
-                        method: 'PUT',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify(payload)
-                     });
-                 } else {
-                     console.log(`Skipping duplicate ${inv.id}`);
-                     continue; // Skip this one
-                 }
-             }
-
              if (res.ok) successCount++;
-             else console.error(`Failed to import ${inv.id}`, await res.text());
-
          } catch (e) { console.error(e); }
       }
 
@@ -482,7 +455,6 @@ export default function App() {
     e.target.value = null;
   };
 
-  // --- Navigation Items ---
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'clients', label: 'Clients', icon: Users },
@@ -513,6 +485,17 @@ export default function App() {
       <DeleteModal isOpen={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} onConfirm={handleDeleteInvoice} title="Delete Invoice" message="Are you sure?" />
       {paymentModalOpen && currentPaymentInvoice && (
         <PaymentModal invoice={currentPaymentInvoice} onClose={() => setPaymentModalOpen(false)} onConfirm={(rate) => { updateInvoiceStatus(currentPaymentInvoice.id, 'Paid', rate); setPaymentModalOpen(false); }} />
+      )}
+
+      {/* --- VIEW MODAL --- */}
+      {viewingInvoice && (
+        <InvoiceViewModal 
+          invoice={viewingInvoice}
+          userSettings={userSettings}
+          onClose={() => setViewingInvoice(null)}
+          onEdit={(inv) => { setViewingInvoice(null); setEditingInvoice(inv); setActiveTab('create_invoice'); }}
+          addToast={addToast}
+        />
       )}
 
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}>
@@ -615,17 +598,21 @@ export default function App() {
                      </thead>
                      <tbody>
                        {paginatedInvoices.map((inv) => (
-                         <tr key={inv.id} className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
+                         <tr 
+                            key={inv.id} 
+                            className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                            onClick={() => setViewingInvoice(inv)}
+                         >
                            <td className="px-6 py-4 font-medium">{inv.id}</td>
                            <td className="px-6 py-4">{inv.client?.name || 'Unknown'}</td>
                            <td className="px-6 py-4">{inv.date ? inv.date.split('T')[0] : ''}</td>
                            <td className="px-6 py-4 font-medium text-right">{inv.currency} {parseFloat(inv.amount).toLocaleString()}</td>
                            <td className="px-6 py-4"><Badge type={inv.status === 'Paid' ? 'success' : 'warning'}>{inv.status}</Badge></td>
                            <td className="px-6 py-4 flex justify-center gap-2">
-                              {inv.status !== 'Paid' && <button onClick={() => handleMarkAsPaid(inv)} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><CheckCircle size={18} /></button>}
-                              <button onClick={() => generateInvoicePDF(inv, userSettings, addToast)} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Printer size={18} /></button>
-                              <button onClick={() => { setEditingInvoice(inv); setActiveTab('create_invoice'); }} className="p-1 text-slate-600 hover:bg-slate-200 rounded"><Edit size={18} /></button>
-                              <button onClick={() => { setInvoiceToDelete(inv.id); setDeleteModalOpen(true); }} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 size={18} /></button>
+                              {inv.status !== 'Paid' && <button onClick={(e) => { e.stopPropagation(); handleMarkAsPaid(inv); }} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><CheckCircle size={18} /></button>}
+                              <button onClick={(e) => { e.stopPropagation(); generateInvoicePDF(inv, userSettings, addToast); }} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Printer size={18} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setEditingInvoice(inv); setActiveTab('create_invoice'); }} className="p-1 text-slate-600 hover:bg-slate-200 rounded"><Edit size={18} /></button>
+                              <button onClick={(e) => { e.stopPropagation(); setInvoiceToDelete(inv.id); setDeleteModalOpen(true); }} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 size={18} /></button>
                            </td>
                          </tr>
                        ))}
@@ -634,13 +621,13 @@ export default function App() {
                        )}
                      </tbody>
                    </table>
-                  <Pagination 
-                      currentPage={currentPage}
-                      totalItems={processedInvoices.length}
-                      pageSize={ITEMS_PER_PAGE}
-                      onPageChange={setCurrentPage}
-                  />
-                  </div> {/* End of overflow-x-auto */}
+                 </div>
+                 <Pagination 
+                    currentPage={currentPage}
+                    totalItems={processedInvoices.length}
+                    pageSize={ITEMS_PER_PAGE}
+                    onPageChange={setCurrentPage}
+                 />
                </Card>
              </div>
            )}
