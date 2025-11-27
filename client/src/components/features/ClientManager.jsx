@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Download, FileSpreadsheet, Plus, Copy, Edit, Trash2, MapPin, Loader2 } from 'lucide-react';
+import * as XLSX from 'xlsx';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -7,7 +8,7 @@ import Select from '../ui/Select';
 import Badge from '../ui/Badge';
 import { STATES, INITIAL_CLIENT_STATE } from '../../lib/constants';
 
-const ClientManager = ({ addToast, searchQuery }) => {
+const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   const [clients, setClients] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isAdding, setIsAdding] = useState(false);
@@ -18,11 +19,20 @@ const ClientManager = ({ addToast, searchQuery }) => {
   const fetchClients = async () => {
     try {
       const res = await fetch('http://localhost:5000/api/clients');
+      if (!res.ok) throw new Error("Failed to fetch");
+      
       const data = await res.json();
-      setClients(data);
+      // Crash Prevention: Ensure data is an array
+      if (Array.isArray(data)) {
+          setClients(data);
+      } else {
+          setClients([]);
+          console.error("API returned non-array for clients:", data);
+      }
     } catch (error) {
       console.error("Failed to fetch clients", error);
       addToast("Failed to load clients", "error");
+      setClients([]);
     } finally {
       setIsLoading(false);
     }
@@ -53,10 +63,12 @@ const ClientManager = ({ addToast, searchQuery }) => {
       if (!res.ok) throw new Error("Failed to save");
 
       addToast(editingId ? "Client updated!" : "Client added!", "success");
-      fetchClients();
+      fetchClients(); 
+      if (onUpdate) onUpdate(); // Refresh Global State
       handleCancel();
     } catch (error) {
-      addToast("Error saving client", "error");
+      console.error(error);
+      addToast("Error saving client. Check backend logs.", "error");
     }
   };
 
@@ -67,25 +79,28 @@ const ClientManager = ({ addToast, searchQuery }) => {
       await fetch(`http://localhost:5000/api/clients/${id}`, { method: 'DELETE' });
       addToast("Client deleted", "info");
       fetchClients();
+      if (onUpdate) onUpdate();
     } catch (error) {
       addToast("Error deleting client", "error");
     }
   };
 
   const handleEdit = (client) => {
-      setNewClient(client);
+      // Deep copy to ensure nested contacts are editable
+      setNewClient(JSON.parse(JSON.stringify(client)));
       setEditingId(client.id);
       setIsAdding(true);
       window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
   const handleDuplicate = (client) => {
-      const duplicated = { ...client, name: `${client.name} (Copy)` };
+      const duplicated = JSON.parse(JSON.stringify(client));
+      duplicated.name = `${duplicated.name} (Copy)`;
       delete duplicated.id;
       setNewClient(duplicated);
       setEditingId(null); 
       setIsAdding(true);
-      addToast("Client duplicated. Ready to save.", "info");
+      addToast("Client duplicated.", "info");
       window.scrollTo({ top: 0, behavior: 'smooth' });
   }
 
@@ -95,10 +110,9 @@ const ClientManager = ({ addToast, searchQuery }) => {
       setNewClient(INITIAL_CLIENT_STATE);
   }
 
-  // --- Helper: Excel Import ---
   const handleDownloadTemplate = () => {
     const headers = "Name,GSTIN,Address,City,State,Country,Contact Name,Email,Phone\n";
-    const sampleData = "Acme Corp,27ABCDE1234F1Z5,123 Industrial Estate,Mumbai,Maharashtra,India,John Doe; Jane Smith,john@acme.com; jane@acme.com,9876543210; 1122334455";
+    const sampleData = "Acme Corp,27ABCDE1234F1Z5,123 Industrial Estate,Mumbai,Maharashtra,India,John Doe;Jane Smith,john@acme.com;jane@acme.com,9876543210;9876543211";
     const blob = new Blob([headers + sampleData], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -114,46 +128,25 @@ const ClientManager = ({ addToast, searchQuery }) => {
 
     try {
       addToast("Reading file...", "info");
-      
-      // 1. Safe Import
-      const xlsxModule = await import('xlsx');
-      const XLSX = xlsxModule.default || xlsxModule;
-
-      // 2. Read File as Array Buffer
       const data = await file.arrayBuffer();
-      
-      // 3. Parse Workbook (Crucial Fix: type: 'array')
       const workbook = XLSX.read(data, { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-      console.log("Imported Data:", jsonData); // Check Console (F12) if this is empty
-
-      if (jsonData.length === 0) {
-        addToast("File appears to be empty or unreadable.", "error");
-        return;
-      }
-
       let successCount = 0;
 
       for (const row of jsonData) {
-        // Helper to get values safely
         const getVal = (key) => {
-             // Check exact key, lowercase, and uppercase
              const val = row[key] || row[key.toLowerCase()] || row[key.toUpperCase()];
              return val !== undefined && val !== null ? String(val).trim() : '';
         };
 
-        const name = getVal('Name') || getVal('Company Name') || getVal('name');
-        if (!name) {
-            console.warn("Skipping row missing name:", row);
-            continue;
-        }
+        const name = getVal('Name') || getVal('Company Name');
+        if (!name) continue;
 
-        // Parse Contacts
-        const contactNames = (getVal('Contact Name') || getVal('Contact')).split(';');
-        const contactEmails = (getVal('Email') || getVal('email')).split(';');
-        const contactPhones = (getVal('Phone') || getVal('phone')).split(';');
+        const contactNames = (getVal('Contact Name') || getVal('Contact') || '').split(';');
+        const contactEmails = (getVal('Email') || '').split(';');
+        const contactPhones = (getVal('Phone') || '').split(';');
 
         const contacts = contactNames.map((cName, i) => {
             const cleanName = cName.trim();
@@ -168,7 +161,7 @@ const ClientManager = ({ addToast, searchQuery }) => {
         if (contacts.length === 0) contacts.push({ name: '', email: '', phone: '' });
 
         const payload = {
-            id: `C-IMP-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+            id: `C-IMP-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
             name: name,
             gstin: getVal('GSTIN') || getVal('Tax ID'),
             address: getVal('Address'),
@@ -185,37 +178,41 @@ const ClientManager = ({ addToast, searchQuery }) => {
         });
 
         if (res.ok) successCount++;
-        else console.error("Failed to save row:", name);
       }
 
-      if (successCount > 0) {
-        addToast(`Success! Imported ${successCount} clients.`, "success");
-        fetchClients();
-      } else {
-        addToast("No valid clients found in file.", "error");
-      }
-
+      addToast(`Success! Imported ${successCount} clients.`, "success");
+      fetchClients();
+      if (onUpdate) onUpdate(); 
+      
     } catch (err) {
       console.error("Import Error:", err);
-      addToast("Error importing file. Open Console (F12) for details.", "error");
+      addToast("Error importing file.", "error");
     }
-    
-    e.target.value = null; // Reset input
+    e.target.value = null; 
   };
 
   const updateContact = (index, field, value) => {
-    const updatedContacts = [...newClient.contacts];
-    updatedContacts[index][field] = value;
-    setNewClient({ ...newClient, contacts: updatedContacts });
+    const updatedContacts = [...(newClient.contacts || [])];
+    updatedContacts[index] = { ...updatedContacts[index], [field]: value }; // Safe update
+    setNewClient(prev => ({ ...prev, contacts: updatedContacts }));
   }
-  const addContact = () => setNewClient({ ...newClient, contacts: [...newClient.contacts, { name: '', email: '', phone: '' }] });
-  const removeContact = (index) => setNewClient({ ...newClient, contacts: newClient.contacts.filter((_, i) => i !== index) });
+  
+  const addContact = () => {
+      setNewClient(prev => ({ 
+          ...prev, 
+          contacts: [...(prev.contacts || []), { name: '', email: '', phone: '' }] 
+      }));
+  };
+  
+  const removeContact = (index) => {
+      setNewClient(prev => ({
+          ...prev,
+          contacts: prev.contacts.filter((_, i) => i !== index)
+      }));
+  };
 
-  if (isLoading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/> Loading Clients...</div>;
-
-
-  // --- ADD THIS FILTER LOGIC HERE ---
-  const filteredClients = clients.filter(c => 
+  // Filter Logic (Safe Access)
+  const filteredClients = (Array.isArray(clients) ? clients : []).filter(c => 
      !searchQuery || 
      (c.name && c.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
      (c.gstin && c.gstin.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -227,12 +224,16 @@ const ClientManager = ({ addToast, searchQuery }) => {
   return (
     <div className="space-y-6">
       <div className="flex justify-between items-center">
-        <h2 className="text-2xl font-bold dark:text-white">Client Management</h2>
+        <div className="flex items-center gap-3">
+            <h2 className="text-2xl font-bold dark:text-white">Client Management</h2>
+            <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium border border-slate-200 dark:border-slate-700">
+                Total: {filteredClients.length}
+            </span>
+        </div>
         <div className="flex gap-2">
           <button 
             onClick={handleDownloadTemplate} 
             className="flex items-center px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
-            title="Download CSV Template"
           >
             <Download size={18} className="mr-2 text-blue-600"/> Template
           </button>
@@ -271,12 +272,12 @@ const ClientManager = ({ addToast, searchQuery }) => {
                <Button variant="ghost" onClick={addContact} icon={Plus} className="text-xs h-8">Add PIC</Button>
             </div>
             <div className="space-y-3">
-              {newClient.contacts?.map((contact, idx) => (
+              {(newClient.contacts || []).map((contact, idx) => (
                 <div key={idx} className="flex gap-2 items-start">
                   <Input placeholder="Name" value={contact.name} onChange={(e) => updateContact(idx, 'name', e.target.value)} className="flex-1" />
                   <Input placeholder="Email" value={contact.email} onChange={(e) => updateContact(idx, 'email', e.target.value)} className="flex-1" />
                   <Input placeholder="Phone" value={contact.phone} onChange={(e) => updateContact(idx, 'phone', e.target.value)} className="flex-1" />
-                  {newClient.contacts.length > 1 && (
+                  {(newClient.contacts || []).length > 1 && (
                     <button onClick={() => removeContact(idx)} className="mt-2 text-slate-400 hover:text-red-500"><Trash2 size={16} /></button>
                   )}
                 </div>
@@ -297,7 +298,7 @@ const ClientManager = ({ addToast, searchQuery }) => {
             <div>
               <div className="flex justify-between items-start">
                  <div className="h-10 w-10 rounded-full bg-indigo-50 dark:bg-indigo-900/20 flex items-center justify-center text-indigo-600 font-bold text-sm mb-3">
-                   {client.name.substring(0,2).toUpperCase()}
+                   {(client.name || '??').substring(0,2).toUpperCase()}
                  </div>
                  <div className="flex gap-2 transition-opacity">
                     <button onClick={() => handleDuplicate(client)} className="text-slate-400 hover:text-emerald-500"><Copy size={16} /></button>
@@ -309,6 +310,10 @@ const ClientManager = ({ addToast, searchQuery }) => {
               <div className="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-400 mb-2 mt-2">
                  <MapPin size={14} className="mt-0.5 shrink-0" />
                  <span>{client.city}, {client.country}</span>
+              </div>
+              {/* Show Contact count */}
+              <div className="mt-2 text-xs text-slate-400">
+                  {client.contacts?.length || 0} Contact(s)
               </div>
             </div>
             <div className="flex flex-wrap gap-2 mt-4 pt-2">

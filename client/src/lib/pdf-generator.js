@@ -23,14 +23,13 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
     doc.setTextColor(PRIMARY_COLOR);
     doc.setFont(undefined, 'bold');
     const companyName = userSettings.companyName || 'Elementree';
-    const companyWidth = doc.getTextWidth(companyName);
     doc.text(companyName, pageWidth - margin, 20, { align: 'right' });
     
     doc.setFontSize(10);
     doc.setTextColor(60);
     doc.setFont(undefined, 'normal');
     
-    // Split Company Address into 2 lines max (approx 45 chars per line for right align area)
+    // Split Company Address (2 lines max)
     const companyAddr = userSettings.address || '';
     const splitCompAddr = doc.splitTextToSize(companyAddr, 80); 
     doc.text(splitCompAddr, pageWidth - margin, 26, { align: 'right' });
@@ -46,7 +45,7 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
     doc.setFont(undefined, 'bold');
     doc.text("INVOICE", margin, 50);
 
-    // Invoice Meta (Bold Titles)
+    // Invoice Meta
     doc.setFontSize(10);
     doc.setTextColor(0);
     
@@ -57,7 +56,7 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
     doc.text(invoice.id, margin + 25, 60);
 
     doc.setFont(undefined, 'bold');
-    doc.text("Currency:", margin + 80, 60); // Added Currency
+    doc.text("Currency:", margin + 80, 60);
     doc.setFont(undefined, 'normal');
     doc.text(invoice.currency, margin + 100, 60);
 
@@ -65,12 +64,13 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
     doc.setFont(undefined, 'bold');
     doc.text("Date:", margin, 66);
     doc.setFont(undefined, 'normal');
-    doc.text(invoice.date ? invoice.date.split('T')[0] : '', margin + 25, 66);
+    const dateStr = invoice.date ? new Date(invoice.date).toLocaleDateString('en-GB') : '';
+    doc.text(dateStr, margin + 25, 66);
 
     // --- 3. Bill To Section ---
     const billToY = 80;
     doc.setFillColor(245, 247, 250);
-    doc.rect(margin, billToY, pageWidth - (margin * 2), 35, 'F');
+    doc.rect(margin, billToY, pageWidth - (margin * 2), 40, 'F'); // Increased height for PIC
     
     doc.setFontSize(11);
     doc.setTextColor(PRIMARY_COLOR);
@@ -87,23 +87,42 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
     doc.setFont(undefined, 'normal');
     doc.setTextColor(60);
 
-    // Client Address (Split nicely)
+    // Client Address
     let clientAddrStr = "";
     if(typeof invoice.client === 'object' && invoice.client) {
         const c = invoice.client;
+        // Construct full address string
         const parts = [c.address, c.city, c.state !== 'Other' ? c.state : '', c.country].filter(Boolean);
         clientAddrStr = parts.join(', ');
     }
-    const splitClientAddr = doc.splitTextToSize(clientAddrStr, 160); // Max width for address
+    const splitClientAddr = doc.splitTextToSize(clientAddrStr, 160);
     doc.text(splitClientAddr, margin + 5, billToY + 19);
 
-    // PIC & Email (New Requirement)
+    // --- FIX: PIC Details ---
     let picY = billToY + 19 + (splitClientAddr.length * 4);
-    if(typeof invoice.client === 'object' && invoice.client.selectedContact) {
-        const contact = invoice.client.selectedContact;
-        const picText = `Attn: ${contact.name || ''}  |  ${contact.email || ''}`;
-        doc.text(picText, margin + 5, picY);
+    
+    // Logic: Use selectedContact if available, otherwise default to first contact
+    let contact = null;
+    if (typeof invoice.client === 'object') {
+        if (invoice.client.selectedContact) {
+            contact = invoice.client.selectedContact;
+        } else if (invoice.client.contacts && invoice.client.contacts.length > 0) {
+            contact = invoice.client.contacts[0];
+        }
+    }
+
+    if (contact) {
+        doc.setFont(undefined, 'bold');
+        doc.text(`Attn: ${contact.name || 'Manager'}`, margin + 5, picY);
+        doc.setFont(undefined, 'normal');
         picY += 5;
+        
+        // Combine Email and Phone
+        const contactDetails = [contact.email, contact.phone].filter(Boolean).join('  |  ');
+        if (contactDetails) {
+             doc.text(contactDetails, margin + 5, picY);
+             picY += 5;
+        }
     }
 
     // GSTIN
@@ -122,7 +141,7 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
     ]);
 
     autoTable(doc, {
-      startY: 125,
+      startY: 130,
       head: [tableColumn],
       body: tableRows,
       headStyles: { 
@@ -132,7 +151,7 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
       },
       bodyStyles: { fontSize: 9 },
       columnStyles: {
-          0: { cellWidth: 80 }, // Description width
+          0: { cellWidth: 80 },
           3: { halign: 'right' },
           4: { halign: 'right' }
       },
@@ -164,27 +183,27 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
     doc.text("Total:", rightColX, finalY + 14);
     doc.text(`${invoice.currency} ${amount.toLocaleString(undefined, {minimumFractionDigits: 2})}`, valueX, finalY + 14, { align: 'right' });
 
-    // --- 6. Export Declaration (Specific Text) ---
+    // --- 6. Export Declaration ---
     let footerY = finalY + 25;
-    // Check if it's an export (Type contains Export or Client state is Other/Foreign)
     const isExport = (invoice.type && invoice.type.includes('Export')) || 
                      (invoice.client && invoice.client.state === 'Other');
 
-    if(isExport && invoice.isLut) { // Only show if LUT is active
+    if(isExport && invoice.isLut) {
         doc.setFontSize(9);
         doc.setTextColor(0);
-        doc.setFont(undefined, 'bold'); // Bold as requested for importance? Or normal.
+        doc.setFont(undefined, 'bold');
         
-        const lutRef = userSettings.lutNumber || "AD270325138597Q"; // Default fallback or settings
+        const lutRef = userSettings.lutNumber || "AD270325138597Q";
         const declaration = `Export of Services without payment of Integrated Goods & Service Tax.\nLUT Ref no: ${lutRef}`;
         
-        doc.text(declaration, rightColX - 40, footerY, { align: 'left' }); 
+        doc.text(declaration, margin, footerY, { align: 'left' }); 
         footerY += 15;
     }
 
-    // --- 7. Bank Details (Dynamic Selection) ---
-    const bankY = pageHeight - 50; // Fixed position at bottom
-    doc.line(margin, bankY - 5, pageWidth - margin, bankY - 5); // Separator
+    // --- 7. Bank Details (With Company Name) ---
+    const bankY = pageHeight - 50;
+    doc.setDrawColor(200);
+    doc.line(margin, bankY - 5, pageWidth - margin, bankY - 5);
     
     doc.setFontSize(10);
     doc.setFont(undefined, 'bold');
@@ -194,22 +213,25 @@ export const generateInvoicePDF = (invoice, userSettings, addToast) => {
     // Find matching bank
     const bank = (userSettings.bank_accounts || []).find(b => b.currency === invoice.currency);
     
+    // Add Company Name to Bank Details
+    doc.setFont(undefined, 'bold');
+    doc.setFontSize(9);
+    doc.text(userSettings.companyName || '', margin + 25, bankY);
+    doc.setFont(undefined, 'normal');
+
     if (bank) {
         let bankText = `${bank.bankName}`;
         if(bank.accountNo) bankText += `\nAccount No: ${bank.accountNo}`;
         if(bank.swift) bankText += `\nSWIFT: ${bank.swift}`;
-        if(bank.ifsc) bankText += `\nIFSC: ${bank.ifsc}`;
+        if(bank.ifsc) bankText += `  |  IFSC: ${bank.ifsc}`;
         
-        doc.setFontSize(9);
         doc.text(bankText, margin, bankY + 5);
     } else {
-        // Fallback if no specific currency bank found (Show first one or message)
+        // Fallback
         if (userSettings.bank_accounts && userSettings.bank_accounts.length > 0) {
              const defaultBank = userSettings.bank_accounts[0];
-             doc.setFontSize(9);
              doc.text(`${defaultBank.bankName}\nAcc: ${defaultBank.accountNo}`, margin, bankY + 5);
         } else {
-             doc.setFontSize(9);
              doc.text("Please contact for bank details.", margin, bankY + 5);
         }
     }

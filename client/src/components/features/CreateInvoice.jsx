@@ -9,7 +9,6 @@ import { CURRENCIES, STATES } from '../../lib/constants';
 const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingInvoice }) => {
   const [items, setItems] = useState([{ id: 1, desc: '', hsn: '', qty: 1, price: 0 }]);
   
-  // Initialize client state safely
   const [client, setClient] = useState({ 
     id: '', name: '', gstin: '', state: 'Maharashtra', address: '', city: '', country: 'India', 
     contacts: [], selectedContact: null 
@@ -26,8 +25,19 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
 
   useEffect(() => {
     if (editingInvoice) {
-        setItems(editingInvoice.items);
+        // 1. Map DB items (description) to Frontend items (desc)
+        const mappedItems = (editingInvoice.items || []).map(item => ({
+            ...item,
+            desc: item.description || item.desc || '', 
+            qty: parseFloat(item.qty) || 1,
+            price: parseFloat(item.price) || 0
+        }));
+        setItems(mappedItems.length > 0 ? mappedItems : [{ id: 1, desc: '', hsn: '', qty: 1, price: 0 }]);
+
+        // 2. Set Client
         setClient(editingInvoice.client || {});
+
+        // 3. Set Settings
         setSettings({
             invoiceNo: editingInvoice.id,
             date: editingInvoice.date ? editingInvoice.date.split('T')[0] : new Date().toISOString().split('T')[0],
@@ -39,19 +49,15 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
     }
   }, [editingInvoice, userSettings]);
 
-  // Handle Dropdown Selection
   const handleClientSelect = (clientId) => {
-    // 1. Find the full client object from the ID
     const selected = clients.find(c => String(c.id) === String(clientId));
     
     if(selected) {
       setClient({ 
         ...selected, 
-        // Default to first contact if available
         selectedContact: selected.contacts && selected.contacts.length > 0 ? selected.contacts[0] : null 
       });
     } else {
-      // Reset if user selects the placeholder
       setClient({ id: '', name: '', gstin: '', state: 'Maharashtra', address: '', contacts: [], selectedContact: null });
     }
   }
@@ -70,7 +76,6 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
     setItems(items.map(item => item.id === id ? { ...item, [field]: value } : item));
   };
 
-  // Calculations
   const subtotal = items.reduce((sum, item) => sum + (item.qty * item.price), 0);
   
   const isInterstate = settings.myState !== client.state;
@@ -111,7 +116,8 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
   };
 
   return (
-    <div className="max-w-4xl mx-auto space-y-6">
+    // CHANGED: max-w-4xl -> max-w-7xl (Much wider container)
+    <div className="max-w-7xl mx-auto space-y-6">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-2xl font-bold dark:text-white">{editingInvoice ? 'Edit Invoice' : 'New Invoice'}</h2>
@@ -127,12 +133,10 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card className="col-span-2 p-6 space-y-6">
-          {/* Client Details */}
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">Bill To</h3>
             
             <div className="mb-4 grid grid-cols-1 md:grid-cols-2 gap-4">
-               {/* Fixed Select Component Logic */}
                <Select 
                  label="Select Saved Client"
                  placeholder="-- Choose a client --"
@@ -167,29 +171,29 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
             </div>
           </div>
 
-          {/* Items */}
           <div>
             <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider mb-4 border-b border-slate-100 dark:border-slate-700 pb-2">Items</h3>
             <div className="space-y-3">
-              <div className="grid grid-cols-12 gap-2 text-xs font-medium text-slate-500 px-2">
+              {/* CHANGED: Grid Layout increased to gap-4 and wider columns for Qty/Price */}
+              <div className="grid grid-cols-12 gap-4 text-xs font-medium text-slate-500 px-2">
                 <div className="col-span-5">Description</div>
                 <div className="col-span-2">HSN/SAC</div>
-                <div className="col-span-1 text-center">Qty</div>
-                <div className="col-span-3 text-right">Price</div>
+                <div className="col-span-2 text-center">Qty</div> {/* Increased from 1 */}
+                <div className="col-span-2 text-right">Price</div> {/* Decreased from 3 to balance */}
                 <div className="col-span-1"></div>
               </div>
               {items.map((item, index) => (
-                <div key={item.id || index} className="grid grid-cols-12 gap-2 items-center">
+                <div key={item.id || index} className="grid grid-cols-12 gap-4 items-center">
                   <div className="col-span-5">
                     <Input value={item.desc} onChange={(e) => updateItem(item.id, 'desc', e.target.value)} placeholder="Description" />
                   </div>
                   <div className="col-span-2">
                     <Input value={item.hsn} onChange={(e) => updateItem(item.id, 'hsn', e.target.value)} placeholder="998311" />
                   </div>
-                  <div className="col-span-1">
+                  <div className="col-span-2">
                     <Input type="number" value={item.qty} onChange={(e) => updateItem(item.id, 'qty', parseInt(e.target.value) || 0)} className="text-center" />
                   </div>
-                  <div className="col-span-3">
+                  <div className="col-span-2">
                     <Input type="number" value={item.price} onChange={(e) => updateItem(item.id, 'price', parseFloat(e.target.value) || 0)} className="text-right" />
                   </div>
                   <div className="col-span-1 flex justify-center">
@@ -204,7 +208,6 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
           </div>
         </Card>
 
-        {/* Settings & Totals */}
         <div className="space-y-6">
           <Card className="p-6 space-y-4">
              <h3 className="text-sm font-semibold text-slate-900 dark:text-white uppercase tracking-wider">Invoice Settings</h3>
@@ -236,26 +239,15 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], editingIn
                 <span>Subtotal</span>
                 <span>{settings.currency} {subtotal.toFixed(2)}</span>
               </div>
-              
               {!isLut && cgst > 0 && (
-                <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                  <span>CGST (9%)</span>
-                  <span>{settings.currency} {cgst.toFixed(2)}</span>
-                </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-400"><span>CGST (9%)</span><span>{settings.currency} {cgst.toFixed(2)}</span></div>
               )}
               {!isLut && sgst > 0 && (
-                 <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                  <span>SGST (9%)</span>
-                  <span>{settings.currency} {sgst.toFixed(2)}</span>
-                </div>
+                 <div className="flex justify-between text-slate-600 dark:text-slate-400"><span>SGST (9%)</span><span>{settings.currency} {sgst.toFixed(2)}</span></div>
               )}
               {!isLut && igst > 0 && (
-                <div className="flex justify-between text-slate-600 dark:text-slate-400">
-                  <span>IGST (18%)</span>
-                  <span>{settings.currency} {igst.toFixed(2)}</span>
-                </div>
+                <div className="flex justify-between text-slate-600 dark:text-slate-400"><span>IGST (18%)</span><span>{settings.currency} {igst.toFixed(2)}</span></div>
               )}
-
               <div className="border-t border-slate-200 dark:border-slate-700 pt-3 mt-3 flex justify-between font-bold text-lg dark:text-white">
                 <span>Total</span>
                 <span>{settings.currency} {grandTotal.toFixed(2)}</span>

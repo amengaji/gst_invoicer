@@ -19,6 +19,7 @@ router.post('/expenses', expenseController.createExpense);
 // --- Invoice Routes ---
 router.get('/invoices', invoiceController.getAllInvoices);
 router.post('/invoices', invoiceController.createInvoice);
+router.put('/invoices/:id', invoiceController.updateInvoice); // <--- ADD THIS LINE (Full Update)
 router.put('/invoices/:id/status', invoiceController.updateInvoiceStatus);
 router.delete('/invoices/:id', invoiceController.deleteInvoice);
 
