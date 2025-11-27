@@ -500,8 +500,21 @@ export default function App() {
 
       <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}>
         <div className="h-16 flex items-center px-6 border-b border-slate-200 dark:border-slate-700">
-           <div className="w-8 h-8 rounded bg-gradient-to-tr from-[#3194A0] to-cyan-400 flex items-center justify-center text-white font-bold mr-3">I</div>
-           <span className="font-bold text-lg tracking-tight">Element Tree<span className="text-[#3194A0]"> Invoice</span></span>
+           {/* Dynamic Logo Logic */}
+           {userSettings.logo ? (
+               <img 
+                 src={userSettings.logo} 
+                 alt="App Logo" 
+                 className="h-8 w-8 rounded object-cover mr-3" 
+               />
+           ) : (
+               <div className="w-8 h-8 rounded bg-gradient-to-tr from-[#3194A0] to-cyan-400 flex items-center justify-center text-white font-bold mr-3">E</div>
+           )}
+           
+           <span className="font-bold text-lg tracking-tight">
+               {userSettings.companyName || "Elementree"}
+               <span className="text-[#3194A0]"> Invoice</span>
+           </span>
         </div>
         <nav className="p-4 space-y-1">
           {navItems.map((item) => (
