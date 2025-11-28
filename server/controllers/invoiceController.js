@@ -55,6 +55,8 @@ exports.getAllInvoices = async (req, res) => {
 };
 
 exports.createInvoice = async (req, res) => {
+    console.log("📥 Incoming Invoice Payload:", req.body);
+
     // Added datePaid to destructuring
     const { id, client, date, amount, tax, status, type, currency, exchangeRate, items, datePaid } = req.body;
     try {
