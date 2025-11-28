@@ -130,9 +130,9 @@ export default function App() {
       return `FY ${year}-${String(year + 1).slice(-2)}`;
   };
 
-// --- API: Load Data (Fixed Settings Mapping) ---
+// --- API: Load Data ---
   const loadData = async () => {
-    if (!token) return;
+    if (!token) return; 
     try {
         const [invRes, expRes, cliRes, setRes] = await Promise.all([
             apiFetch('http://localhost:5000/api/invoices'),
@@ -140,23 +140,29 @@ export default function App() {
             apiFetch('http://localhost:5000/api/clients'),
             apiFetch('http://localhost:5000/api/settings')
         ]);
-
+        
         if (invRes.status === 401 || invRes.status === 403) {
             handleLogout();
             return;
         }
 
-        setInvoices(await invRes.json() || []);
-        setExpenses(await expRes.json() || []);
-        setClients(await cliRes.json() || []);
+        const invData = await invRes.json();
+        setInvoices(Array.isArray(invData) ? invData : []);
+
+        const expData = await expRes.json();
+        setExpenses(Array.isArray(expData) ? expData : []);
+
+        const cliData = await cliRes.json();
+        setClients(Array.isArray(cliData) ? cliData : []);
         
-        if (!selectedFY || selectedFY === '') setSelectedFY("All Time");
+        // FIX: Default to "All Time" so you see data immediately
+        if (!selectedFY) setSelectedFY("All Time");
 
         const dbSettings = await setRes.json();
         
-        // FIX: Map Database (snake_case) to Frontend (camelCase)
-        if(dbSettings && Object.keys(dbSettings).length > 0) {
-            setUserSettings(prev => ({ 
+        // FIX: Manually map Database keys (snake_case) to App keys (camelCase)
+        if (dbSettings && dbSettings.id) {
+            setUserSettings(prev => ({
                 ...prev,
                 companyName: dbSettings.company_name || prev.companyName,
                 email: dbSettings.email || prev.email,
@@ -170,7 +176,7 @@ export default function App() {
                 lutNumber: dbSettings.lut_number || prev.lutNumber,
                 number_format: dbSettings.number_format || prev.number_format,
                 
-                // Parse Bank Accounts safely
+                // Parse bank accounts safely
                 bank_accounts: typeof dbSettings.bank_accounts === 'string' 
                     ? JSON.parse(dbSettings.bank_accounts) 
                     : (dbSettings.bank_accounts || [])
@@ -278,7 +284,7 @@ const handleDeleteInvoice = async () => {
               number_format: newSettings.number_format
           };
 
-          await fetch('http://localhost:5000/api/settings', {
+          await apiFetch('http://localhost:5000/api/settings', {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
@@ -610,7 +616,8 @@ const handleDeleteInvoice = async () => {
             <Settings size={18} className="mr-3" /> Settings
           </button>
           <button onClick={handleLogout} className="flex items-center w-full px-4 py-2 mt-2 text-sm text-red-600 hover:bg-red-100 dark:hover:bg-red-700 rounded-lg transition-colors">
-            <logout size={18} className="mr-3" /> Logout
+            <LogOut size={18} className="mr-3" /> 
+            Logout
           </button> 
         </div>
       </aside>
