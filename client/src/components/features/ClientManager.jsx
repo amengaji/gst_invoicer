@@ -15,22 +15,32 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [newClient, setNewClient] = useState(INITIAL_CLIENT_STATE);
+  
+  // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
-  const ITEMS_PER_PAGE = 9; // 3x3 Grid
+  const ITEMS_PER_PAGE = 9; 
+
+  useEffect(() => { setCurrentPage(1); }, [searchQuery]);
+
+  // --- AUTH HELPER ---
+  const getAuthHeaders = () => ({
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${localStorage.getItem('token')}`
+  });
 
   // --- API: Fetch Clients ---
   const fetchClients = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/clients');
+      const res = await fetch('http://localhost:5000/api/clients', {
+          headers: getAuthHeaders() 
+      });
       if (!res.ok) throw new Error("Failed to fetch");
       
       const data = await res.json();
-      // Crash Prevention: Ensure data is an array
       if (Array.isArray(data)) {
           setClients(data);
       } else {
           setClients([]);
-          console.error("API returned non-array for clients:", data);
       }
     } catch (error) {
       console.error("Failed to fetch clients", error);
@@ -41,10 +51,6 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
     }
   };
 
-
-  useEffect(() => { setCurrentPage(1); }, [searchQuery]);
-
-
   useEffect(() => {
     fetchClients();
   }, []);
@@ -54,16 +60,16 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
     if (!newClient.name) return;
     
     try {
-      const method = editingId ? 'PUT' : 'POST';
       const url = editingId 
         ? `http://localhost:5000/api/clients/${editingId}`
         : 'http://localhost:5000/api/clients';
-
+      
+      const method = editingId ? 'PUT' : 'POST';
       const payload = { ...newClient, id: editingId || `C-${Date.now()}` };
 
       const res = await fetch(url, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers: getAuthHeaders(), // Secure Header
         body: JSON.stringify(payload)
       });
 
@@ -71,11 +77,11 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
 
       addToast(editingId ? "Client updated!" : "Client added!", "success");
       fetchClients(); 
-      if (onUpdate) onUpdate(); // Refresh Global State
+      if (onUpdate) onUpdate(); 
       handleCancel();
     } catch (error) {
       console.error(error);
-      addToast("Error saving client. Check backend logs.", "error");
+      addToast("Error saving client.", "error");
     }
   };
 
@@ -83,7 +89,10 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this client?")) return;
     try {
-      await fetch(`http://localhost:5000/api/clients/${id}`, { method: 'DELETE' });
+      await fetch(`http://localhost:5000/api/clients/${id}`, { 
+          method: 'DELETE',
+          headers: getAuthHeaders() // Secure Header
+      });
       addToast("Client deleted", "info");
       fetchClients();
       if (onUpdate) onUpdate();
@@ -93,7 +102,6 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   };
 
   const handleEdit = (client) => {
-      // Deep copy to ensure nested contacts are editable
       setNewClient(JSON.parse(JSON.stringify(client)));
       setEditingId(client.id);
       setIsAdding(true);
@@ -117,6 +125,7 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
       setNewClient(INITIAL_CLIENT_STATE);
   }
 
+  // --- Import Logic ---
   const handleDownloadTemplate = () => {
     const headers = "Name,GSTIN,Address,City,State,Country,Contact Name,Email,Phone\n";
     const sampleData = "Acme Corp,27ABCDE1234F1Z5,123 Industrial Estate,Mumbai,Maharashtra,India,John Doe;Jane Smith,john@acme.com;jane@acme.com,9876543210;9876543211";
@@ -129,6 +138,7 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
     URL.revokeObjectURL(url);
   }
 
+  // --- FIXED: Use Secure Headers for Import ---
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -178,9 +188,10 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
             contacts: contacts
         };
 
+        // FIX: Send Authorization Header
         const res = await fetch('http://localhost:5000/api/clients', {
             method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
+            headers: getAuthHeaders(), 
             body: JSON.stringify(payload)
         });
 
@@ -200,25 +211,18 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
 
   const updateContact = (index, field, value) => {
     const updatedContacts = [...(newClient.contacts || [])];
-    updatedContacts[index] = { ...updatedContacts[index], [field]: value }; // Safe update
+    updatedContacts[index] = { ...updatedContacts[index], [field]: value };
     setNewClient(prev => ({ ...prev, contacts: updatedContacts }));
   }
   
   const addContact = () => {
-      setNewClient(prev => ({ 
-          ...prev, 
-          contacts: [...(prev.contacts || []), { name: '', email: '', phone: '' }] 
-      }));
+      setNewClient(prev => ({ ...prev, contacts: [...(prev.contacts || []), { name: '', email: '', phone: '' }] }));
   };
   
   const removeContact = (index) => {
-      setNewClient(prev => ({
-          ...prev,
-          contacts: prev.contacts.filter((_, i) => i !== index)
-      }));
+      setNewClient(prev => ({ ...prev, contacts: prev.contacts.filter((_, i) => i !== index) }));
   };
 
-  // Filter Logic (Safe Access)
   const filteredClients = (Array.isArray(clients) ? clients : []).filter(c => 
      !searchQuery || 
      (c.name && c.name.toLowerCase().includes(searchQuery.toLowerCase())) ||
@@ -226,13 +230,10 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
      (c.city && c.city.toLowerCase().includes(searchQuery.toLowerCase()))
   );
 
-  // --- ADD THIS BLOCK ---
   const paginatedClients = filteredClients.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
   );
-  // ----------------------
-
 
   if (isLoading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/> Loading Clients...</div>;
 
@@ -246,18 +247,13 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
             </span>
         </div>
         <div className="flex gap-2">
-          <button 
-            onClick={handleDownloadTemplate} 
-            className="flex items-center px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"
-          >
+          <button onClick={handleDownloadTemplate} className="flex items-center px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
             <Download size={18} className="mr-2 text-blue-600"/> Template
           </button>
-
           <label className="flex items-center cursor-pointer px-4 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
              <FileSpreadsheet size={18} className="mr-2 text-emerald-600"/> Import
              <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleFileUpload} />
           </label>
-
           <Button onClick={() => { setIsAdding(!isAdding); setEditingId(null); setNewClient(INITIAL_CLIENT_STATE); }} icon={Plus}>Add Client</Button>
         </div>
       </div>
@@ -265,17 +261,10 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
       {isAdding && (
         <Card className="p-6 mb-6 border-emerald-100 bg-emerald-50/50 dark:bg-emerald-900/10">
           <h3 className="text-lg font-semibold mb-4 dark:text-white">{editingId ? 'Edit Client Details' : 'New Client Details'}</h3>
-          
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
-              <div className="col-span-2 md:col-span-1">
-                <Input label="Company Name" value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} placeholder="Legal Entity Name" />
-              </div>
-              <div className="col-span-2 md:col-span-1">
-                <Input label="GSTIN/Tax ID" value={newClient.gstin} onChange={e => setNewClient({...newClient, gstin: e.target.value})} placeholder="Optional for export" />
-              </div>
-              <div className="col-span-2">
-                <Input label="Address Line 1" value={newClient.address} onChange={e => setNewClient({...newClient, address: e.target.value})} />
-              </div>
+              <div className="col-span-2 md:col-span-1"><Input label="Company Name" value={newClient.name} onChange={e => setNewClient({...newClient, name: e.target.value})} placeholder="Legal Entity Name" /></div>
+              <div className="col-span-2 md:col-span-1"><Input label="GSTIN/Tax ID" value={newClient.gstin} onChange={e => setNewClient({...newClient, gstin: e.target.value})} placeholder="Optional for export" /></div>
+              <div className="col-span-2"><Input label="Address Line 1" value={newClient.address} onChange={e => setNewClient({...newClient, address: e.target.value})} /></div>
               <Input label="City" value={newClient.city} onChange={e => setNewClient({...newClient, city: e.target.value})} />
               <Select label="State" value={newClient.state} onChange={e => setNewClient({...newClient, state: e.target.value})} options={[...STATES.map(s => ({label: s, value: s})), {label: "Foreign (Export)", value: "Other"}]} />
               <Input label="Country" value={newClient.country} onChange={e => setNewClient({...newClient, country: e.target.value})} />
@@ -326,7 +315,6 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
                  <MapPin size={14} className="mt-0.5 shrink-0" />
                  <span>{client.city}, {client.country}</span>
               </div>
-              {/* Show Contact count */}
               <div className="mt-2 text-xs text-slate-400">
                   {client.contacts?.length || 0} Contact(s)
               </div>
@@ -338,14 +326,10 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
           </Card>
         ))}
       </div>
+      
       <div className="mt-6">
-        <Pagination 
-            currentPage={currentPage}
-            totalItems={filteredClients.length}
-            pageSize={ITEMS_PER_PAGE}
-            onPageChange={setCurrentPage}
-        />
-    </div>
+        <Pagination currentPage={currentPage} totalItems={filteredClients.length} pageSize={ITEMS_PER_PAGE} onPageChange={setCurrentPage} />
+      </div>
     </div>
   )
 }

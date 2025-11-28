@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, FileText, Receipt, PieChart, Settings, Menu, Moon, Sun, Search, Users, 
-  CheckCircle, Printer, Edit, Trash2, Download, Plus, FileSpreadsheet, ChevronUp, ChevronDown 
+  CheckCircle, Printer, Edit, Trash2, Download, Plus, FileSpreadsheet, ChevronUp, ChevronDown, LogOut 
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 import { ToastContainer } from './components/ui/Toast';
@@ -11,6 +11,10 @@ import Card from './components/ui/Card';
 import Button from './components/ui/Button';
 import Select from './components/ui/Select'; 
 import Pagination from './components/ui/Pagination';
+import { formatDate } from './lib/utils'; // Utility function for date formatting
+
+// ... imports ...
+import Login from './components/auth/Login';
 
 // Features
 import Dashboard from './components/features/Dashboard';
@@ -24,10 +28,55 @@ import { generateInvoicePDF } from './lib/pdf-generator';
 
 export default function App() {
   const [activeTab, setActiveTab] = useState('dashboard');
-  const [darkMode, setDarkMode] = useState(false);
+  //const [darkMode, setDarkMode] = useState(false);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   
+  const [token, setToken] = useState(localStorage.getItem('token'));
+
+  // --- Logout ---
+  const handleLogout = () => {
+      localStorage.removeItem('token');
+      setToken(null);
+      window.location.reload();
+
+  };
+
+  // --- API Helper ---
+  // Add Authorization header to EVERY request
+  const apiFetch = async (url, options = {}) => {
+      const headers = { 
+          ...options.headers, 
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}` // <--- THE KEY
+      };
+      return fetch(url, { ...options, headers });
+  };
+
+  // --- Render ---
+  if (!token) {
+      return <Login onLogin={(t) => { 
+        localStorage.setItem('token', t); setToken(t); 
+        //Force a full reload to reset state and ensure clean state and data loading
+        window.location.reload();
+      }} />;
+  }
+  
+  // --- 1. FIXED: Dark Mode Persistence ---
+  // Initialize by reading from LocalStorage. If nothing there, default to false.
+  const [darkMode, setDarkMode] = useState(() => {
+      const savedMode = localStorage.getItem('darkMode');
+      return savedMode === 'true';
+  });
+
+  // Effect to apply class AND save to LocalStorage
+  useEffect(() => {
+    localStorage.setItem('darkMode', darkMode);
+    if (darkMode) document.documentElement.classList.add('dark');
+    else document.documentElement.classList.remove('dark');
+  }, [darkMode]);
+
+
   // --- Filtering State ---
   const [selectedFY, setSelectedFY] = useState(''); 
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
@@ -41,14 +90,14 @@ export default function App() {
   const [viewingInvoice, setViewingInvoice] = useState(null);
   
   const [userSettings, setUserSettings] = useState({
-     companyName: 'My Tech Company',
-     email: 'admin@company.com',
+     companyName: 'Elementree',
+     email: 'accounts@elementree.co.in',
      gstin: '27AAAAA0000A1Z5',
-     address: '123 Business Park, Mumbai',
+     address: '7, Sunbeam, Deonar Baug, Deonar Village Road, Mumbai - 400088',
      state: 'Maharashtra',
-     invoicePrefix: 'INV-23',
-     currency: 'INR',
-     filingFrequency: 'Monthly',
+     invoicePrefix: 'ET/INV/MUM/25',
+     currency: 'USD',
+     filingFrequency: 'Quaterly',
      bank_accounts: []
   });
 
@@ -78,10 +127,10 @@ export default function App() {
   const loadData = async () => {
     try {
         const [invRes, expRes, cliRes, setRes] = await Promise.all([
-            fetch('http://localhost:5000/api/invoices'),
-            fetch('http://localhost:5000/api/expenses'),
-            fetch('http://localhost:5000/api/clients'),
-            fetch('http://localhost:5000/api/settings')
+            apiFetch('http://localhost:5000/api/invoices'),
+            apiFetch('http://localhost:5000/api/expenses'),
+            apiFetch('http://localhost:5000/api/clients'),
+            apiFetch('http://localhost:5000/api/settings')
         ]);
         
         const invData = await invRes.json();
@@ -93,18 +142,22 @@ export default function App() {
         const cliData = await cliRes.json();
         setClients(Array.isArray(cliData) ? cliData : []);
         
-        if (!selectedFY) setSelectedFY(getFiscalYear(new Date()));
+        if (!selectedFY) setSelectedFY("All Time");
 
         const settingsData = await setRes.json();
-        if(settingsData && settingsData.id) {
+        // FIX: Only update if we actually got data.
+        // If object is empty (new account), keep existing defaults or partial state.
+        if(settingsData && Object.keys(settingsData).length > 0) {
             setUserSettings(prev => ({ 
-                ...prev,
+                ...prev, // Keep existing defaults for missing keys
                 ...settingsData, 
+                // Ensure bank_accounts is an array
                 bank_accounts: typeof settingsData.bank_accounts === 'string' 
                     ? JSON.parse(settingsData.bank_accounts) 
                     : (settingsData.bank_accounts || [])
             }));
         }
+
     } catch (e) {
         console.error("Failed to load data", e);
         addToast("Error connecting to server", "error");
@@ -296,6 +349,7 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
+// --- Robust Invoice Import (Fixes 409 Conflict & Multiple PICs) ---
   const handleInvoiceFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
@@ -309,16 +363,20 @@ export default function App() {
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
+      // Helper: Safe Value Getter
       const getVal = (row, key) => {
+           // Check common variations of keys
            const val = row[key] || row[key.toLowerCase()] || row[key.toUpperCase()];
            return val !== undefined && val !== null ? String(val).trim() : '';
       };
 
+      // 1. Client Cache
       const clientCache = new Map();
       if (Array.isArray(clients)) {
           clients.forEach(c => { if (c.name) clientCache.set(c.name.toLowerCase(), c); });
       }
 
+      // 2. Date Parser
       const parseDate = (dateStr) => {
          try {
              if (!dateStr) return new Date().toISOString().split('T')[0];
@@ -329,23 +387,40 @@ export default function App() {
                  const parts = cleanStr.split(/[-/.]/);
                  if (parts.length === 3) {
                      if (parts[0].length === 4) return `${parts[0]}-${parts[1]}-${parts[2]}`;
-                     return `${parts[2]}-${parts[1]}-${parts[0].padStart(2, '0')}`;
+                     return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
                  }
              }
              return new Date(dateStr).toISOString().split('T')[0];
          } catch (e) { return new Date().toISOString().split('T')[0]; }
       };
 
-      // Auto-Create Clients
+      // 3. Auto-Create Clients (With Multiple PIC Support)
       const uniqueNewClients = new Map();
       for (const row of jsonData) {
           const name = getVal(row, 'Client Name');
+          // Check variations for Contact fields
+          const rawContact = getVal(row, 'Contact Name') || getVal(row, 'Contact') || getVal(row, 'Person');
+          
           if(name && !clientCache.has(name.toLowerCase()) && !uniqueNewClients.has(name.toLowerCase())) {
+              // Parse Multiple Contacts (Split by ;)
+              const cNames = rawContact.split(';');
+              const cEmails = (getVal(row, 'Email') || '').split(';');
+              const cPhones = (getVal(row, 'Phone') || '').split(';');
+
+              const contacts = cNames.map((cn, i) => ({
+                  name: cn.trim(),
+                  email: (cEmails[i] || '').trim(),
+                  phone: (cPhones[i] || '').trim()
+              })).filter(c => c.name);
+
+              if(contacts.length === 0) contacts.push({ name: '', email: '', phone: '' });
+
               const newClient = {
                   id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
                   name: name,
                   state: getVal(row, 'Client State') || 'Maharashtra',
-                  address: 'Imported Address', city: 'Imported City', country: 'India', contacts: []
+                  address: 'Imported Address', city: 'Imported City', country: 'India', 
+                  contacts: contacts
               };
               uniqueNewClients.set(name.toLowerCase(), newClient);
           }
@@ -353,16 +428,12 @@ export default function App() {
 
       for (const client of uniqueNewClients.values()) {
           try {
-              await fetch('http://localhost:5000/api/clients', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify(client)
-              });
+              await apiFetch('http://localhost:5000/api/clients', { method: 'POST', body: JSON.stringify(client) });
               clientCache.set(client.name.toLowerCase(), client);
           } catch(e) { console.error("Client create error", e); }
       }
 
-      // Group Invoices
+      // 4. Group Invoices
       const invoicesMap = new Map();
       for (const row of jsonData) {
         const invNo = getVal(row, 'Invoice No');
@@ -379,39 +450,26 @@ export default function App() {
             invoicesMap.get(invNo).items.push(item);
         } else {
             const clientName = getVal(row, 'Client Name');
-            const clientState = getVal(row, 'Client State') || 'Maharashtra'; 
-            const matchedClient = clientCache.get(clientName.toLowerCase()) || { name: 'Unknown', state: clientState };
+            const matchedClient = clientCache.get(clientName.toLowerCase()) || { name: 'Unknown', state: 'Maharashtra' };
+            
+            const csvState = getVal(row, 'Client State');
+            const finalState = csvState || matchedClient.state;
+
             const rawRoe = getVal(row, 'Exchange Rate');
             const exchangeRate = parseFloat(rawRoe);
             const isPaid = rawRoe !== '' && !isNaN(exchangeRate) && exchangeRate > 0;
 
             invoicesMap.set(invNo, {
-                id: invNo,
-                invoiceNo: invNo,
-                client: matchedClient,
-                csvClientState: clientState, 
-                date: parseDate(getVal(row, 'Date')),
-                currency: getVal(row, 'Currency') || 'INR',
-                exchangeRate: exchangeRate || 1,
-                isLut: String(getVal(row, 'Is LUT')).toUpperCase() === 'TRUE',
-                items: [item],
-                status: isPaid ? 'Paid' : 'Pending',
-                type: 'Intrastate'
+                id: invNo, invoiceNo: invNo, client: matchedClient, csvClientState: finalState, 
+                date: parseDate(getVal(row, 'Date')), currency: getVal(row, 'Currency') || 'INR', exchangeRate: exchangeRate || 1,
+                isLut: String(getVal(row, 'Is LUT')).toUpperCase() === 'TRUE', items: [item], status: isPaid ? 'Paid' : 'Pending', type: 'Intrastate'
             });
         }
       }
 
+      // 5. Send Invoices (Handle Duplicates Gracefully)
       let successCount = 0;
       for (const inv of invoicesMap.values()) {
-         // Check overwrite
-         const safeInvoices = Array.isArray(invoices) ? invoices : [];
-         const exists = safeInvoices.some(i => i.id === inv.id);
-
-         if (exists && !allowOverwrite) continue;
-         if (exists && allowOverwrite) {
-             try { await fetch(`http://localhost:5000/api/invoices/${inv.id}`, { method: 'DELETE' }); } catch (e) {}
-         }
-
          const subtotal = inv.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
          const stateToCheck = inv.csvClientState || inv.client.state;
          const isExport = stateToCheck === 'Other';
@@ -423,25 +481,37 @@ export default function App() {
          else { tax = subtotal * 0.18; }
 
          const payload = {
-            id: inv.id,
-            client: inv.client,
-            date: inv.date,
-            amount: subtotal + tax,
-            tax: tax,
-            status: inv.status,
+            id: inv.id, client: inv.client, date: inv.date, amount: subtotal + tax, tax, status: inv.status,
             type: isExport ? (inv.isLut ? 'Export (LUT)' : 'Export') : (isInterstate ? 'Interstate' : 'Intrastate'),
-            currency: inv.currency,
-            exchangeRate: inv.exchangeRate,
-            items: inv.items
+            currency: inv.currency, exchangeRate: inv.exchangeRate, items: inv.items
          };
 
          try {
-             const res = await fetch('http://localhost:5000/api/invoices', {
+             // A. Try Create (POST)
+             const res = await apiFetch('http://localhost:5000/api/invoices', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify(payload)
              });
-             if (res.ok) successCount++;
+
+             // B. If Duplicate (409) AND Overwrite Allowed -> Try Update (PUT)
+             if (res.status === 409 || res.status === 500) {
+                 if (allowOverwrite) {
+                     // Note: We use 'PUT' to update the existing ID
+                     const updateRes = await apiFetch(`http://localhost:5000/api/invoices/${inv.id}`, {
+                        method: 'PUT',
+                        body: JSON.stringify(payload)
+                     });
+                     if (updateRes.ok) successCount++;
+                     else console.error(`Update failed for ${inv.id}`, await updateRes.text());
+                 } else {
+                     console.log(`Skipped duplicate ${inv.id}`);
+                 }
+             } else if (res.ok) {
+                 successCount++;
+             } else {
+                 console.error(`Create failed for ${inv.id}`, await res.text());
+             }
+
          } catch (e) { console.error(e); }
       }
 
@@ -454,6 +524,7 @@ export default function App() {
     }
     e.target.value = null;
   };
+
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
@@ -527,6 +598,9 @@ export default function App() {
           <button onClick={() => setActiveTab('settings')} className={`flex items-center w-full px-4 py-2 text-sm transition-colors rounded-lg ${activeTab === 'settings' ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>
             <Settings size={18} className="mr-3" /> Settings
           </button>
+          <button onClick={handleLogout} className="flex items-center w-full px-4 py-2 mt-2 text-sm text-red-600 hover:bg-red-100 dark:hover:bg-red-700 rounded-lg transition-colors">
+            <logout size={18} className="mr-3" /> Logout
+          </button> 
         </div>
       </aside>
 
@@ -618,7 +692,7 @@ export default function App() {
                          >
                            <td className="px-6 py-4 font-medium">{inv.id}</td>
                            <td className="px-6 py-4">{inv.client?.name || 'Unknown'}</td>
-                           <td className="px-6 py-4">{inv.date ? inv.date.split('T')[0] : ''}</td>
+                           <td className="px-6 py-4">{formatDate(inv.date)}</td>
                            <td className="px-6 py-4 font-medium text-right">{inv.currency} {parseFloat(inv.amount).toLocaleString()}</td>
                            <td className="px-6 py-4"><Badge type={inv.status === 'Paid' ? 'success' : 'warning'}>{inv.status}</Badge></td>
                            <td className="px-6 py-4 flex justify-center gap-2">

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Briefcase, Upload, Save, FileText, Landmark, Plus, Trash2 } from 'lucide-react';
+import { Briefcase, Upload, Save, FileText, Landmark, Plus, Trash2, Copy } from 'lucide-react';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -10,7 +10,7 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
   const [formData, setFormData] = useState({
       ...settings,
       bank_accounts: settings.bank_accounts || [],
-      number_format: settings.number_format || 'IN' // Default to Indian
+      number_format: settings.number_format || 'IN'
   });
   const [saved, setSaved] = useState(false);
 
@@ -37,7 +37,7 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
     setTimeout(() => setSaved(false), 2000);
   };
 
-  // Bank Account Helpers
+  // --- Bank Account Helpers ---
   const addBankAccount = () => {
       setFormData(prev => ({
           ...prev,
@@ -52,8 +52,19 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
   };
 
   const removeBank = (index) => {
+      if (!window.confirm("Remove this bank account?")) return;
       const newBanks = formData.bank_accounts.filter((_, i) => i !== index);
       setFormData(prev => ({ ...prev, bank_accounts: newBanks }));
+  };
+
+  // NEW: Duplicate Function
+  const duplicateBank = (index) => {
+      const bankToCopy = { ...formData.bank_accounts[index] };
+      setFormData(prev => ({
+          ...prev,
+          bank_accounts: [...prev.bank_accounts, bankToCopy]
+      }));
+      addToast("Bank account duplicated.", "info");
   };
 
   return (
@@ -114,7 +125,24 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
             <div className="space-y-6">
                 {formData.bank_accounts && formData.bank_accounts.map((bank, index) => (
                     <div key={index} className="p-4 bg-slate-50 dark:bg-slate-800 rounded-lg border border-slate-200 dark:border-slate-700 relative group">
-                        <button onClick={() => removeBank(index)} className="absolute top-2 right-2 text-slate-400 hover:text-red-500"><Trash2 size={16}/></button>
+                        {/* Action Buttons */}
+                        <div className="absolute top-2 right-2 flex gap-1">
+                            <button 
+                                onClick={() => duplicateBank(index)} 
+                                className="p-1.5 text-slate-400 hover:text-blue-500 hover:bg-blue-50 rounded transition-colors" 
+                                title="Duplicate Bank Details"
+                            >
+                                <Copy size={16}/>
+                            </button>
+                            <button 
+                                onClick={() => removeBank(index)} 
+                                className="p-1.5 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded transition-colors"
+                                title="Remove Bank"
+                            >
+                                <Trash2 size={16}/>
+                            </button>
+                        </div>
+
                         <h4 className="text-xs font-bold text-slate-500 uppercase mb-3">Bank Account {index + 1}</h4>
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <Select 

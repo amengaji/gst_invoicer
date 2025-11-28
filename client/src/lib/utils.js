@@ -6,19 +6,33 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
 
+// --- NEW: Date Formatter (dd-mmm-yyyy) ---
+export const formatDate = (dateStr) => {
+  if (!dateStr) return '-';
+  try {
+      const date = new Date(dateStr);
+      if (isNaN(date.getTime())) return dateStr; // Return original if invalid
+      
+      // Format: 01-Apr-2025
+      return date.toLocaleDateString('en-GB', { 
+          day: '2-digit', 
+          month: 'short', 
+          year: 'numeric' 
+      }).replace(/ /g, '-');
+  } catch (e) {
+      return dateStr;
+  }
+};
+
 export const generateCSV = (data) => {
   if (!data || !data.length) return '';
-  // Get headers
   const headers = Object.keys(data[0]).join(',');
-  // Get rows
   const rows = data.map(obj => 
     Object.values(obj).map(val => {
-      // Handle commas inside data by wrapping in quotes
       const stringVal = String(val);
       return `"${stringVal.replace(/"/g, '""')}"`; 
     }).join(',')
   ).join('\n');
-  
   return `${headers}\n${rows}`;
 };
 
