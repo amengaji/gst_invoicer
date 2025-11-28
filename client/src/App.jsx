@@ -367,181 +367,284 @@ const handleDeleteInvoice = async () => {
   };
 
 // --- Invoice Import Logic (Corrected) ---
-  const handleInvoiceFileUpload = async (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
+// --- Robust Invoice Import (Fixed Date Parsing, No Shifts) ---
+const handleInvoiceFileUpload = async (e) => {
+  const file = e.target.files[0];
+  if (!file) return;
 
-    // 1. Ask for permission to overwrite upfront
-    const allowOverwrite = window.confirm("If duplicate Invoice IDs are found, do you want to OVERWRITE them?\n\nClick OK to Overwrite.\nClick Cancel to Skip duplicates.");
+  const allowOverwrite = window.confirm(
+    "If duplicate Invoice IDs are found, do you want to OVERWRITE them?\n\nClick OK to Overwrite.\nClick Cancel to Skip duplicates."
+  );
 
-    try {
-      addToast("Processing file...", "info");
-      const data = await file.arrayBuffer();
-      const workbook = XLSX.read(data, { type: 'array' });
-      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
-      const jsonData = XLSX.utils.sheet_to_json(worksheet);
+  try {
+    addToast("Processing...", "info");
 
-      // Helper to get values safely (handles case differences)
-      const getVal = (row, key) => {
-           const val = row[key] || row[key.toLowerCase()] || row[key.toUpperCase()];
-           return val !== undefined && val !== null ? String(val).trim() : '';
-      };
+    // ---------------------
+    // 1. Read Excel File
+    // ---------------------
+    const data = await file.arrayBuffer();
+    const workbook = XLSX.read(data, { type: "array" });
+    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
 
-      // 2. Client Cache (to avoid creating duplicates during this loop)
-      const clientCache = new Map();
-      if (Array.isArray(clients)) {
-          clients.forEach(c => { if (c.name) clientCache.set(c.name.toLowerCase(), c); });
-      }
+    // RAW:false + cellDates:false => disables all Excel auto-date conversion
+    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+      raw: false,
+      cellDates: false,
+    });
 
-      // 3. Robust Date Parser
-      const parseDate = (dateStr) => {
-         try {
-             if (!dateStr) return new Date().toISOString().split('T')[0];
-             if (typeof dateStr === 'number') return new Date(Math.round((dateStr - 25569) * 864e5)).toISOString().split('T')[0];
-             if (typeof dateStr === 'string') {
-                 const cleanStr = dateStr.trim();
-                 if (/^\d{4}-\d{2}-\d{2}$/.test(cleanStr)) return cleanStr;
-                 const parts = cleanStr.split(/[-/.]/);
-                 if (parts.length === 3) {
-                     if (parts[0].length === 4) return `${parts[0]}-${parts[1]}-${parts[2]}`;
-                     return `${parts[2]}-${parts[1].padStart(2,'0')}-${parts[0].padStart(2,'0')}`;
-                 }
-             }
-             return new Date(dateStr).toISOString().split('T')[0];
-         } catch (e) { return new Date().toISOString().split('T')[0]; }
-      };
+    // ---------------------
+    // SAFE VALUE GETTER
+    // ---------------------
+    const getVal = (row, key) => {
+      const val =
+        row[key] ??
+        row[key?.toLowerCase()] ??
+        row[key?.toUpperCase()] ??
+        row[key?.replace(/\s+/g, "")] ??
+        "";
 
-      // 4. Auto-Create Clients First
-      const uniqueNewClients = new Map();
-      for (const row of jsonData) {
-          const name = getVal(row, 'Client Name');
-          if(name && !clientCache.has(name.toLowerCase()) && !uniqueNewClients.has(name.toLowerCase())) {
-              // Split multiple contacts by semicolon
-              const cNames = (getVal(row, 'Contact Name') || '').split(';');
-              const cEmails = (getVal(row, 'Email') || '').split(';');
-              const cPhones = (getVal(row, 'Phone') || '').split(';');
+      return val !== undefined && val !== null ? String(val).trim() : "";
+    };
 
-              const contacts = cNames.map((cn, i) => ({
-                  name: cn.trim(),
-                  email: (cEmails[i] || '').trim(),
-                  phone: (cPhones[i] || '').trim()
-              })).filter(c => c.name);
+    // ---------------------
+    // 2. PERFECT DATE PARSER
+    // ---------------------
+const parseDate = (value) => {
+  if (!value) return null;
 
-              if(contacts.length === 0) contacts.push({ name: '', email: '', phone: '' });
+  // If value is number OR a numeric string → Excel serial
+  if (!isNaN(value)) {
+    const serial = Number(value);
 
-              const newClient = {
-                  id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-                  name: name,
-                  state: getVal(row, 'Client State') || 'Maharashtra',
-                  address: 'Imported Address', city: 'Imported City', country: 'India', 
-                  contacts: contacts
-              };
-              uniqueNewClients.set(name.toLowerCase(), newClient);
-          }
-      }
+    // Valid Excel serial dates fall in 40000–60000 (~1990–2040)
+    if (serial > 40000 && serial < 60000) {
+      const excelEpoch = new Date(1899, 11, 30);
+      const converted = new Date(excelEpoch.getTime() + serial * 86400000);
+      return converted.toISOString().substring(0, 10);
+    }
+  }
 
-      // Send New Clients to Backend
-      for (const client of uniqueNewClients.values()) {
-          try {
-              await apiFetch('http://localhost:5000/api/clients', { 
-                  method: 'POST', 
-                  body: JSON.stringify(client) 
-              });
-              clientCache.set(client.name.toLowerCase(), client);
-          } catch(e) { console.error("Client auto-create failed", e); }
-      }
+  const str = String(value).trim();
 
-      // 5. Prepare Invoices
-      const invoicesMap = new Map();
-      for (const row of jsonData) {
-        const invNo = getVal(row, 'Invoice No');
-        if (!invNo) continue;
+  // yyyy-mm-dd
+  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
-        const item = {
-            desc: getVal(row, 'Item Desc'),
-            hsn: getVal(row, 'Item HSN'),
-            qty: parseFloat(getVal(row, 'Item Qty')) || 1,
-            price: parseFloat(getVal(row, 'Item Price')) || 0
-        };
+  // dd-mm-yyyy or dd/mm/yyyy
+  const ddmmyyyy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+  if (ddmmyyyy) {
+    const [_, dd, mm, yyyy] = ddmmyyyy;
+    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+  }
 
-        if (invoicesMap.has(invNo)) {
-            invoicesMap.get(invNo).items.push(item);
-        } else {
-            const clientName = getVal(row, 'Client Name');
-            const matchedClient = clientCache.get(clientName.toLowerCase()) || { name: 'Unknown', state: 'Maharashtra' };
-            
-            const csvState = getVal(row, 'Client State');
-            const finalState = csvState || matchedClient.state;
+  // FINAL fallback — only accept reasonable years
+  const test = new Date(str);
+  if (!isNaN(test)) {
+    const year = test.getFullYear();
+    if (year >= 1990 && year <= 2050) {
+      return test.toISOString().substring(0, 10);
+    }
+  }
 
-            const rawRoe = getVal(row, 'Exchange Rate');
-            const exchangeRate = parseFloat(rawRoe);
-            const isPaid = rawRoe !== '' && !isNaN(exchangeRate) && exchangeRate > 0;
+  return null;
+};
 
-            invoicesMap.set(invNo, {
-                id: invNo, invoiceNo: invNo, client: matchedClient, csvClientState: finalState, 
-                date: parseDate(getVal(row, 'Date')), currency: getVal(row, 'Currency') || 'INR', exchangeRate: exchangeRate || 1,
-                isLut: String(getVal(row, 'Is LUT')).toUpperCase() === 'TRUE', items: [item], status: isPaid ? 'Paid' : 'Pending', type: 'Intrastate'
-            });
+
+
+    // ---------------------
+    // 3. CLIENT CACHE
+    // ---------------------
+    const clientCache = new Map();
+    if (Array.isArray(clients)) {
+      clients.forEach((c) => {
+        if (c.name) clientCache.set(c.name.toLowerCase(), c);
+      });
+    }
+
+    // ---------------------
+    // 4. AUTO-CREATE CLIENTS
+    // ---------------------
+    const uniqueNewClients = new Map();
+
+    for (const row of jsonData) {
+      const name = getVal(row, "Client Name");
+      const rawContact =
+        getVal(row, "Contact Name") ||
+        getVal(row, "Contact") ||
+        getVal(row, "Person");
+
+      if (name && !clientCache.has(name.toLowerCase())) {
+        if (!uniqueNewClients.has(name.toLowerCase())) {
+          const cNames = rawContact.split(";");
+          const cEmails = (getVal(row, "Email") || "").split(";");
+          const cPhones = (getVal(row, "Phone") || "").split(";");
+
+          const contacts = cNames
+            .map((cn, i) => ({
+              name: cn.trim(),
+              email: (cEmails[i] || "").trim(),
+              phone: (cPhones[i] || "").trim(),
+            }))
+            .filter((c) => c.name);
+
+          if (contacts.length === 0)
+            contacts.push({ name: "", email: "", phone: "" });
+
+          const newClient = {
+            id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+            name,
+            state: getVal(row, "Client State") || "Maharashtra",
+            address: "Imported Address",
+            city: "Imported City",
+            country: "India",
+            contacts,
+          };
+
+          uniqueNewClients.set(name.toLowerCase(), newClient);
         }
       }
+    }
 
-      // 6. Send Invoices to Backend
-      let successCount = 0;
-      
-      for (const inv of invoicesMap.values()) {
-         const subtotal = inv.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
-         const stateToCheck = inv.csvClientState || inv.client.state;
-         const isExport = stateToCheck === 'Other';
-         const isInterstate = stateToCheck !== userSettings.state;
-         
-         let tax = 0;
-         if (isExport) { if (!inv.isLut) tax = subtotal * 0.18; } 
-         else if (isInterstate) { tax = subtotal * 0.18; } 
-         else { tax = subtotal * 0.18; }
+    // Save newly-created clients
+    for (const client of uniqueNewClients.values()) {
+      try {
+        await apiFetch("http://localhost:5000/api/clients", {
+          method: "POST",
+          body: JSON.stringify(client),
+        });
+        clientCache.set(client.name.toLowerCase(), client);
+      } catch (e) {
+        console.error("Client create error", e);
+      }
+    }
 
-         const payload = {
-            id: inv.id, client: inv.client, date: inv.date, amount: subtotal + tax, tax, status: inv.status,
-            type: isExport ? (inv.isLut ? 'Export (LUT)' : 'Export') : (isInterstate ? 'Interstate' : 'Intrastate'),
-            currency: inv.currency, exchangeRate: inv.exchangeRate, items: inv.items
-         };
+    // ---------------------
+    // 5. GROUP INVOICES
+    // ---------------------
+    const invoicesMap = new Map();
 
-         try {
-             // A. Try Create (POST)
-             // We use 'fetch' inside a try/catch manually here to capture the 409 status
-             const res = await fetch('http://localhost:5000/api/invoices', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-                body: JSON.stringify(payload)
-             });
+    for (const row of jsonData) {
+      const invNo = getVal(row, "Invoice No");
+      if (!invNo) continue;
 
-             if (res.ok) {
-                 successCount++;
-             } else if (res.status === 409 && allowOverwrite) {
-                 // B. If Conflict (409) -> Update (PUT)
-                 // IMPORTANT: Use encodeURIComponent to handle slashes in Invoice ID
-                 const updateRes = await fetch(`http://localhost:5000/api/invoices/${encodeURIComponent(inv.id)}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
-                    body: JSON.stringify(payload)
-                 });
-                 
-                 if (updateRes.ok) successCount++;
-                 else console.error(`Update failed for ${inv.id}`);
-             } else {
-                 console.error(`Import failed for ${inv.id}: ${res.status}`);
-             }
-         } catch (e) { console.error("Network Error:", e); }
+      const item = {
+        desc: getVal(row, "Item Desc"),
+        hsn: getVal(row, "Item HSN"),
+        qty: parseFloat(getVal(row, "Item Qty")) || 1,
+        price: parseFloat(getVal(row, "Item Price")) || 0,
+      };
+
+      if (invoicesMap.has(invNo)) {
+        invoicesMap.get(invNo).items.push(item);
+      } else {
+        const clientName = getVal(row, "Client Name");
+        const matchedClient =
+          clientCache.get(clientName.toLowerCase()) || {
+            name: "Unknown",
+            state: "Maharashtra",
+          };
+
+        const csvState = getVal(row, "Client State");
+        const finalState = csvState || matchedClient.state;
+
+        const rawRoe = getVal(row, "Exchange Rate");
+        const exchangeRate = parseFloat(rawRoe);
+        const isPaid = rawRoe !== "" && !isNaN(exchangeRate) && exchangeRate > 0;
+
+        invoicesMap.set(invNo, {
+          id: invNo,
+          invoiceNo: invNo,
+          client: matchedClient,
+          csvClientState: finalState,
+          date: parseDate(getVal(row, "Date")),
+          currency: getVal(row, "Currency") || "INR",
+          exchangeRate: exchangeRate || 1,
+          isLut: String(getVal(row, "Is LUT")).toUpperCase() === "TRUE",
+          items: [item],
+          status: isPaid ? "Paid" : "Pending",
+          type: "Intrastate",
+        });
+      }
+    }
+
+    // ---------------------
+    // 6. SEND INVOICES
+    // ---------------------
+    let successCount = 0;
+
+    for (const inv of invoicesMap.values()) {
+      const subtotal = inv.items.reduce(
+        (sum, item) => sum + item.qty * item.price,
+        0
+      );
+
+      const stateToCheck = inv.csvClientState || inv.client.state;
+      const isExport = stateToCheck === "Other";
+      const isInterstate = stateToCheck !== userSettings.state;
+
+      let tax = 0;
+      if (isExport) {
+        if (!inv.isLut) tax = subtotal * 0.18;
+      } else if (isInterstate) {
+        tax = subtotal * 0.18;
+      } else {
+        tax = subtotal * 0.18;
       }
 
-      addToast(`Processed complete. ${successCount} invoices imported.`, "success");
-      loadData(); 
+      const payload = {
+        id: inv.id,
+        client: inv.client,
+        date: inv.date,
+        amount: subtotal + tax,
+        tax,
+        status: inv.status,
+        type: isExport
+          ? inv.isLut
+            ? "Export (LUT)"
+            : "Export"
+          : isInterstate
+          ? "Interstate"
+          : "Intrastate",
+        currency: inv.currency,
+        exchangeRate: inv.exchangeRate,
+        items: inv.items,
+      };
 
-    } catch (err) {
-      console.error(err);
-      addToast("Error processing file.", "error");
+      try {
+        const res = await apiFetch("http://localhost:5000/api/invoices", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+
+        if (res.status === 409 || res.status === 500) {
+          if (allowOverwrite) {
+            const updateRes = await apiFetch(
+              `http://localhost:5000/api/invoices/${inv.id}`,
+              {
+                method: "PUT",
+                body: JSON.stringify(payload),
+              }
+            );
+            if (updateRes.ok) successCount++;
+          }
+        } else if (res.ok) {
+          successCount++;
+        }
+      } catch (err) {
+        console.error(err);
+      }
     }
-    e.target.value = null;
-  };
+
+    addToast(`Imported ${successCount} invoices successfully!`, "success");
+    loadData();
+  } catch (err) {
+    console.error(err);
+    addToast("Error processing file.", "error");
+  }
+
+  // Reset file input
+  e.target.value = null;
+};
+
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },

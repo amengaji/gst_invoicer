@@ -1,11 +1,10 @@
 const { query } = require('./config/db');
-const bcrypt = require('bcrypt');
 
 const upgrade = async () => {
     try {
-        console.log("🔐 Upgrading Database for Auth...");
+        console.log("🔐 Upgrading Database Structure...");
 
-        // 1. Create Users Table
+        // 1. Create Users Table if missing
         await query(`
             CREATE TABLE IF NOT EXISTS users (
                 id SERIAL PRIMARY KEY,
@@ -15,43 +14,20 @@ const upgrade = async () => {
             );
         `);
 
-        // 2. Add user_id to other tables
+        console.log("✔ users table ensured");
+
+        // 2. Ensure user_id exists on the required tables
         const tables = ['clients', 'invoices', 'expenses', 'settings'];
         for (const table of tables) {
             await query(`ALTER TABLE ${table} ADD COLUMN IF NOT EXISTS user_id INT;`);
+            console.log(`✔ user_id added to ${table}`);
         }
 
-        // 3. Create Default Admin User
-        // Email: admin@test.com  |  Password: 123456
-        const hash = await bcrypt.hash('123456', 10);
-        
-        // Safe Insert (Only if not exists)
-        const userCheck = await query(`SELECT id FROM users WHERE email = 'admin@test.com'`);
-        
-        let userId;
-        if (userCheck.rows.length === 0) {
-            const newUser = await query(`
-                INSERT INTO users (email, password, company_name) 
-                VALUES ('admin@test.com', $1, 'My Company') 
-                RETURNING id`, 
-                [hash]
-            );
-            userId = newUser.rows[0].id;
-            console.log("✅ User 'admin@test.com' created with password '123456'");
-        } else {
-            userId = userCheck.rows[0].id;
-            console.log("ℹ️ User 'admin@test.com' already exists.");
-        }
-
-        // 4. Link existing data to this user so you don't lose it
-        for (const table of tables) {
-            await query(`UPDATE ${table} SET user_id = $1 WHERE user_id IS NULL`, [userId]);
-        }
-
-        console.log("✅ Database Upgrade Complete!");
+        console.log("🎉 Database Upgrade Complete (No Default User Created)");
         process.exit(0);
+
     } catch (err) {
-        console.error("❌ Error:", err);
+        console.error("❌ Error during upgrade:", err);
         process.exit(1);
     }
 };
