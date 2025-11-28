@@ -42,15 +42,22 @@ export default function App() {
 
   };
 
-  // --- API Helper ---
-  // Add Authorization header to EVERY request
+// --- API HELPER (Fixed: Throws errors so App knows if it failed) ---
   const apiFetch = async (url, options = {}) => {
-      const headers = { 
-          ...options.headers, 
+      const headers = {
+          ...options.headers,
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}` // <--- THE KEY
+          'Authorization': `Bearer ${token}`
       };
-      return fetch(url, { ...options, headers });
+      const response = await fetch(url, { ...options, headers });
+      
+      // If server returns 400/404/500/409, throw an error!
+      if (!response.ok) {
+          const text = await response.text();
+          throw new Error(`Server Error (${response.status}): ${text}`);
+      }
+      
+      return response;
   };
 
   // --- Render ---
@@ -123,8 +130,11 @@ export default function App() {
       return `FY ${year}-${String(year + 1).slice(-2)}`;
   };
 
-  // --- API: Load Data ---
+// --- API: Load Data ---
   const loadData = async () => {
+    const currentToken = localStorage.getItem('token');
+    if (!currentToken) return;
+
     try {
         const [invRes, expRes, cliRes, setRes] = await Promise.all([
             apiFetch('http://localhost:5000/api/invoices'),
@@ -132,32 +142,29 @@ export default function App() {
             apiFetch('http://localhost:5000/api/clients'),
             apiFetch('http://localhost:5000/api/settings')
         ]);
-        
-        const invData = await invRes.json();
-        setInvoices(Array.isArray(invData) ? invData : []);
 
-        const expData = await expRes.json();
-        setExpenses(Array.isArray(expData) ? expData : []);
+        if (invRes.status === 401 || invRes.status === 403) {
+            handleLogout();
+            return;
+        }
 
-        const cliData = await cliRes.json();
-        setClients(Array.isArray(cliData) ? cliData : []);
+        setInvoices(await invRes.json() || []);
+        setExpenses(await expRes.json() || []);
+        setClients(await cliRes.json() || []);
         
+        // FIX: Default to "All Time" so you see data immediately
         if (!selectedFY) setSelectedFY("All Time");
 
         const settingsData = await setRes.json();
-        // FIX: Only update if we actually got data.
-        // If object is empty (new account), keep existing defaults or partial state.
-        if(settingsData && Object.keys(settingsData).length > 0) {
+        if(settingsData && settingsData.id) {
             setUserSettings(prev => ({ 
-                ...prev, // Keep existing defaults for missing keys
+                ...prev,
                 ...settingsData, 
-                // Ensure bank_accounts is an array
                 bank_accounts: typeof settingsData.bank_accounts === 'string' 
                     ? JSON.parse(settingsData.bank_accounts) 
                     : (settingsData.bank_accounts || [])
             }));
         }
-
     } catch (e) {
         console.error("Failed to load data", e);
         addToast("Error connecting to server", "error");
@@ -182,37 +189,27 @@ export default function App() {
 
   const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
 
-  const handleSaveInvoice = async (newInvoice) => {
+const handleSaveInvoice = async (newInvoice) => {
     try {
         const safeInvoices = Array.isArray(invoices) ? invoices : [];
         const isUpdate = safeInvoices.some(inv => inv.id === newInvoice.id);
         
+        // FIX: Added encodeURIComponent() for Update URL
         const url = isUpdate 
-            ? `http://localhost:5000/api/invoices/${newInvoice.id}`
+            ? `http://localhost:5000/api/invoices/${encodeURIComponent(newInvoice.id)}`
             : 'http://localhost:5000/api/invoices';
-            
         const method = isUpdate ? 'PUT' : 'POST';
 
-        const res = await fetch(url, {
-            method: method,
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(newInvoice)
-        });
+        const res = await apiFetch(url, { method: method, body: JSON.stringify(newInvoice) });
+        if(!res.ok) { const err = await res.json(); throw new Error(err.error || "Save failed"); }
         
-        if(!res.ok) {
-            const err = await res.json();
-            throw new Error(err.error || "Save failed");
-        }
-        
-        addToast(isUpdate ? "Invoice updated successfully!" : "Invoice created successfully!", "success");
+        addToast(isUpdate ? "Invoice updated!" : "Invoice created!", "success");
         setEditingInvoice(null);
         setActiveTab('invoices');
         loadData(); 
-    } catch (e) {
-        console.error(e);
-        addToast(`Error: ${e.message}`, "error");
-    }
+    } catch (e) { addToast(`Error: ${e.message}`, "error"); }
   };
+
 
   const handleMarkAsPaid = async (invoice) => {
     if (invoice.currency === 'INR') {
@@ -223,30 +220,30 @@ export default function App() {
     }
   };
 
-  const updateInvoiceStatus = async (id, status, rate) => {
+const updateInvoiceStatus = async (id, status, rate) => {
     try {
-        await fetch(`http://localhost:5000/api/invoices/${id}/status`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ status, exchangeRate: rate })
+        // FIX: Added encodeURIComponent()
+        await apiFetch(`http://localhost:5000/api/invoices/${encodeURIComponent(id)}/status`, { 
+            method: 'PUT', 
+            body: JSON.stringify({ status, exchangeRate: rate }) 
         });
-        addToast("Invoice updated", "success");
+        addToast("Invoice updated", "success"); 
         loadData();
-    } catch (e) {
-        addToast("Update failed", "error");
-    }
+    } catch (e) { addToast("Update failed", "error"); }
   };
 
-  const handleDeleteInvoice = async () => {
+
+const handleDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
     try {
-        await fetch(`http://localhost:5000/api/invoices/${invoiceToDelete}`, { method: 'DELETE' });
+        // FIX: Added encodeURIComponent() to handle slashes in ID
+        await apiFetch(`http://localhost:5000/api/invoices/${encodeURIComponent(invoiceToDelete)}`, { method: 'DELETE' });
         addToast("Invoice deleted", "success");
         setDeleteModalOpen(false);
         setInvoiceToDelete(null);
         loadData();
-    } catch (e) {
-        addToast("Delete failed", "error");
+    } catch (e) { 
+        addToast(`Delete failed: ${e.message}`, "error"); 
     }
   };
 
@@ -349,34 +346,34 @@ export default function App() {
     URL.revokeObjectURL(url);
   };
 
-// --- Robust Invoice Import (Fixes 409 Conflict & Multiple PICs) ---
+// --- Invoice Import Logic (Corrected) ---
   const handleInvoiceFileUpload = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
 
+    // 1. Ask for permission to overwrite upfront
     const allowOverwrite = window.confirm("If duplicate Invoice IDs are found, do you want to OVERWRITE them?\n\nClick OK to Overwrite.\nClick Cancel to Skip duplicates.");
 
     try {
-      addToast("Processing...", "info");
+      addToast("Processing file...", "info");
       const data = await file.arrayBuffer();
       const workbook = XLSX.read(data, { type: 'array' });
       const worksheet = workbook.Sheets[workbook.SheetNames[0]];
       const jsonData = XLSX.utils.sheet_to_json(worksheet);
 
-      // Helper: Safe Value Getter
+      // Helper to get values safely (handles case differences)
       const getVal = (row, key) => {
-           // Check common variations of keys
            const val = row[key] || row[key.toLowerCase()] || row[key.toUpperCase()];
            return val !== undefined && val !== null ? String(val).trim() : '';
       };
 
-      // 1. Client Cache
+      // 2. Client Cache (to avoid creating duplicates during this loop)
       const clientCache = new Map();
       if (Array.isArray(clients)) {
           clients.forEach(c => { if (c.name) clientCache.set(c.name.toLowerCase(), c); });
       }
 
-      // 2. Date Parser
+      // 3. Robust Date Parser
       const parseDate = (dateStr) => {
          try {
              if (!dateStr) return new Date().toISOString().split('T')[0];
@@ -394,16 +391,13 @@ export default function App() {
          } catch (e) { return new Date().toISOString().split('T')[0]; }
       };
 
-      // 3. Auto-Create Clients (With Multiple PIC Support)
+      // 4. Auto-Create Clients First
       const uniqueNewClients = new Map();
       for (const row of jsonData) {
           const name = getVal(row, 'Client Name');
-          // Check variations for Contact fields
-          const rawContact = getVal(row, 'Contact Name') || getVal(row, 'Contact') || getVal(row, 'Person');
-          
           if(name && !clientCache.has(name.toLowerCase()) && !uniqueNewClients.has(name.toLowerCase())) {
-              // Parse Multiple Contacts (Split by ;)
-              const cNames = rawContact.split(';');
+              // Split multiple contacts by semicolon
+              const cNames = (getVal(row, 'Contact Name') || '').split(';');
               const cEmails = (getVal(row, 'Email') || '').split(';');
               const cPhones = (getVal(row, 'Phone') || '').split(';');
 
@@ -426,14 +420,18 @@ export default function App() {
           }
       }
 
+      // Send New Clients to Backend
       for (const client of uniqueNewClients.values()) {
           try {
-              await apiFetch('http://localhost:5000/api/clients', { method: 'POST', body: JSON.stringify(client) });
+              await apiFetch('http://localhost:5000/api/clients', { 
+                  method: 'POST', 
+                  body: JSON.stringify(client) 
+              });
               clientCache.set(client.name.toLowerCase(), client);
-          } catch(e) { console.error("Client create error", e); }
+          } catch(e) { console.error("Client auto-create failed", e); }
       }
 
-      // 4. Group Invoices
+      // 5. Prepare Invoices
       const invoicesMap = new Map();
       for (const row of jsonData) {
         const invNo = getVal(row, 'Invoice No');
@@ -467,8 +465,9 @@ export default function App() {
         }
       }
 
-      // 5. Send Invoices (Handle Duplicates Gracefully)
+      // 6. Send Invoices to Backend
       let successCount = 0;
+      
       for (const inv of invoicesMap.values()) {
          const subtotal = inv.items.reduce((sum, item) => sum + (item.qty * item.price), 0);
          const stateToCheck = inv.csvClientState || inv.client.state;
@@ -488,34 +487,33 @@ export default function App() {
 
          try {
              // A. Try Create (POST)
-             const res = await apiFetch('http://localhost:5000/api/invoices', {
+             // We use 'fetch' inside a try/catch manually here to capture the 409 status
+             const res = await fetch('http://localhost:5000/api/invoices', {
                 method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
                 body: JSON.stringify(payload)
              });
 
-             // B. If Duplicate (409) AND Overwrite Allowed -> Try Update (PUT)
-             if (res.status === 409 || res.status === 500) {
-                 if (allowOverwrite) {
-                     // Note: We use 'PUT' to update the existing ID
-                     const updateRes = await apiFetch(`http://localhost:5000/api/invoices/${inv.id}`, {
-                        method: 'PUT',
-                        body: JSON.stringify(payload)
-                     });
-                     if (updateRes.ok) successCount++;
-                     else console.error(`Update failed for ${inv.id}`, await updateRes.text());
-                 } else {
-                     console.log(`Skipped duplicate ${inv.id}`);
-                 }
-             } else if (res.ok) {
+             if (res.ok) {
                  successCount++;
+             } else if (res.status === 409 && allowOverwrite) {
+                 // B. If Conflict (409) -> Update (PUT)
+                 // IMPORTANT: Use encodeURIComponent to handle slashes in Invoice ID
+                 const updateRes = await fetch(`http://localhost:5000/api/invoices/${encodeURIComponent(inv.id)}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${localStorage.getItem('token')}` },
+                    body: JSON.stringify(payload)
+                 });
+                 
+                 if (updateRes.ok) successCount++;
+                 else console.error(`Update failed for ${inv.id}`);
              } else {
-                 console.error(`Create failed for ${inv.id}`, await res.text());
+                 console.error(`Import failed for ${inv.id}: ${res.status}`);
              }
-
-         } catch (e) { console.error(e); }
+         } catch (e) { console.error("Network Error:", e); }
       }
 
-      addToast(`Imported ${successCount} invoices successfully!`, "success");
+      addToast(`Processed complete. ${successCount} invoices imported.`, "success");
       loadData(); 
 
     } catch (err) {
@@ -524,7 +522,6 @@ export default function App() {
     }
     e.target.value = null;
   };
-
 
   const navItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
