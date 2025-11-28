@@ -1,31 +1,40 @@
 const express = require('express');
 const router = express.Router();
 
+const authController = require('../controllers/authController');
 const clientController = require('../controllers/clientController');
 const expenseController = require('../controllers/expenseController');
 const invoiceController = require('../controllers/invoiceController');
 const settingsController = require('../controllers/settingsController');
+const authMiddleware = require('../middleware/auth');
 
-// --- Client Routes ---
+// --- Public Routes ---
+router.post('/register', authController.register);
+router.post('/login', authController.login);
+
+// --- Protected Routes (Require Login) ---
+router.use(authMiddleware); // All routes below this line need a token
+
+// Clients
 router.get('/clients', clientController.getAllClients);
 router.post('/clients', clientController.createClient);
 router.put('/clients/:id', clientController.updateClient);
 router.delete('/clients/:id', clientController.deleteClient);
 
-// --- Expense Routes ---
+// Expenses
 router.get('/expenses', expenseController.getAllExpenses);
 router.post('/expenses', expenseController.createExpense);
-router.put('/expenses/:id', expenseController.updateExpense);    // <--- Added
-router.delete('/expenses/:id', expenseController.deleteExpense); // <--- Added
+router.put('/expenses/:id', expenseController.updateExpense);
+router.delete('/expenses/:id', expenseController.deleteExpense);
 
-// --- Invoice Routes ---
+// Invoices
 router.get('/invoices', invoiceController.getAllInvoices);
 router.post('/invoices', invoiceController.createInvoice);
-router.put('/invoices/:id', invoiceController.updateInvoice); // <--- ADD THIS LINE (Full Update)
+router.put('/invoices/:id', invoiceController.updateInvoice);
 router.put('/invoices/:id/status', invoiceController.updateInvoiceStatus);
 router.delete('/invoices/:id', invoiceController.deleteInvoice);
 
-// --- Settings Routes ---
+// Settings
 router.get('/settings', settingsController.getSettings);
 router.put('/settings', settingsController.updateSettings);
 
