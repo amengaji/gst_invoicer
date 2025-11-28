@@ -161,7 +161,8 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
         const name = getVal('Name') || getVal('Company Name');
         if (!name) continue;
 
-        const contactNames = (getVal('Contact Name') || getVal('Contact') || '').split(';');
+        const splitStr = (str) => str.split(';').map(s => s.trim()).filter(s => s);
+        const contactNames = splitStr(getVal('Contact Name') || getVal('Contact'));
         const contactEmails = (getVal('Email') || '').split(';');
         const contactPhones = (getVal('Phone') || '').split(';');
 
