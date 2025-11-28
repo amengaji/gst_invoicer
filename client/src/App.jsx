@@ -130,11 +130,9 @@ export default function App() {
       return `FY ${year}-${String(year + 1).slice(-2)}`;
   };
 
-// --- API: Load Data ---
+// --- API: Load Data (Fixed Settings Mapping) ---
   const loadData = async () => {
-    const currentToken = localStorage.getItem('token');
-    if (!currentToken) return;
-
+    if (!token) return;
     try {
         const [invRes, expRes, cliRes, setRes] = await Promise.all([
             apiFetch('http://localhost:5000/api/invoices'),
@@ -152,18 +150,34 @@ export default function App() {
         setExpenses(await expRes.json() || []);
         setClients(await cliRes.json() || []);
         
-        // FIX: Default to "All Time" so you see data immediately
-        if (!selectedFY) setSelectedFY("All Time");
+        if (!selectedFY || selectedFY === '') setSelectedFY("All Time");
 
-        const settingsData = await setRes.json();
-        if(settingsData && settingsData.id) {
+        const dbSettings = await setRes.json();
+        
+        // FIX: Map Database (snake_case) to Frontend (camelCase)
+        if(dbSettings && Object.keys(dbSettings).length > 0) {
             setUserSettings(prev => ({ 
                 ...prev,
-                ...settingsData, 
-                bank_accounts: typeof settingsData.bank_accounts === 'string' 
-                    ? JSON.parse(settingsData.bank_accounts) 
-                    : (settingsData.bank_accounts || [])
+                companyName: dbSettings.company_name || prev.companyName,
+                email: dbSettings.email || prev.email,
+                gstin: dbSettings.gstin || prev.gstin,
+                address: dbSettings.address || prev.address,
+                state: dbSettings.state || prev.state,
+                invoicePrefix: dbSettings.invoice_prefix || prev.invoicePrefix,
+                currency: dbSettings.currency || prev.currency,
+                filingFrequency: dbSettings.filing_frequency || prev.filingFrequency,
+                logo: dbSettings.logo || prev.logo,
+                lutNumber: dbSettings.lut_number || prev.lutNumber,
+                number_format: dbSettings.number_format || prev.number_format,
+                
+                // Parse Bank Accounts safely
+                bank_accounts: typeof dbSettings.bank_accounts === 'string' 
+                    ? JSON.parse(dbSettings.bank_accounts) 
+                    : (dbSettings.bank_accounts || [])
             }));
+        } else {
+             // Keep defaults if no settings found
+             setUserSettings(prev => ({ ...prev }));
         }
     } catch (e) {
         console.error("Failed to load data", e);
@@ -638,70 +652,113 @@ const handleDeleteInvoice = async () => {
            {activeTab === 'clients' && <ClientManager addToast={addToast} searchQuery={searchQuery} onUpdate={loadData} />}
            {activeTab === 'settings' && <SettingsPage settings={userSettings} onSave={handleSaveSettings} addToast={addToast} />}
 
-           {activeTab === 'invoices' && (
+          {activeTab === 'invoices' && (
              <div className="space-y-6">
+               
+               {/* --- NEW: Invoice Stats Cards --- */}
+               <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                  <Card className="p-4 flex items-center gap-4 border-l-4 border-l-blue-500">
+                      <div className="p-3 bg-blue-50 rounded-full text-blue-600"><FileText size={24} /></div>
+                      <div>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Total Invoices</p>
+                          <h3 className="text-xl font-bold text-slate-800 dark:text-white">{invoices.length}</h3>
+                      </div>
+                  </Card>
+                  <Card className="p-4 flex items-center gap-4 border-l-4 border-l-indigo-500">
+                      <div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><Receipt size={24} /></div>
+                      <div>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Total Value (INR)</p>
+                          <h3 className="text-xl font-bold text-slate-800 dark:text-white">
+                            ₹{invoices.reduce((acc, inv) => acc + (parseFloat(inv.amount) * (parseFloat(inv.exchange_rate) || 1)), 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                          </h3>
+                      </div>
+                  </Card>
+                  <Card className="p-4 flex items-center gap-4 border-l-4 border-l-emerald-500">
+                      <div className="p-3 bg-emerald-50 rounded-full text-emerald-600"><CheckCircle size={24} /></div>
+                      <div>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Received (INR)</p>
+                          <h3 className="text-xl font-bold text-emerald-700 dark:text-emerald-400">
+                            ₹{invoices.filter(i => i.status === 'Paid').reduce((acc, inv) => acc + (parseFloat(inv.amount) * (parseFloat(inv.exchange_rate) || 1)), 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                          </h3>
+                      </div>
+                  </Card>
+                  <Card className="p-4 flex items-center gap-4 border-l-4 border-l-orange-500">
+                      <div className="p-3 bg-orange-50 rounded-full text-orange-600"><PieChart size={24} /></div>
+                      <div>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Pending (INR)</p>
+                          <h3 className="text-xl font-bold text-orange-700 dark:text-orange-400">
+                            ₹{invoices.filter(i => i.status !== 'Paid').reduce((acc, inv) => acc + (parseFloat(inv.amount) * (parseFloat(inv.exchange_rate) || 1)), 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                          </h3>
+                      </div>
+                  </Card>
+               </div>
+
                <div className="flex justify-between items-center">
                  <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-bold dark:text-white">All Invoices</h2>
-                    <span className="px-3 py-1 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 text-sm font-medium border border-slate-200 dark:border-slate-700">
-                        Total: {processedInvoices.length}
-                    </span>
                  </div>
                  
                  <div className="flex gap-2">
                     <div className="w-40">
-                        <Select 
-                            value={selectedFY} 
-                            onChange={(e) => setSelectedFY(e.target.value)} 
-                            options={availableFiscalYears.map(fy => ({ label: fy, value: fy }))}
-                        />
+                        <Select value={selectedFY} onChange={(e) => setSelectedFY(e.target.value)} options={availableFiscalYears.map(fy => ({ label: fy, value: fy }))} />
                     </div>
-
-                    <button onClick={handleDownloadInvoiceTemplate} className="flex items-center px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
-                       <Download size={16} className="mr-1.5 text-blue-600"/> Template
-                    </button>
-                    <label className="flex items-center cursor-pointer px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all">
-                       <FileSpreadsheet size={16} className="mr-1.5 text-emerald-600"/> Import
-                       <input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleInvoiceFileUpload} />
-                    </label>
+                    <button onClick={handleDownloadInvoiceTemplate} className="flex items-center px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"><Download size={16} className="mr-1.5 text-blue-600"/> Template</button>
+                    <label className="flex items-center cursor-pointer px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-medium hover:bg-slate-50 dark:hover:bg-slate-700 transition-all"><FileSpreadsheet size={16} className="mr-1.5 text-emerald-600"/> Import<input type="file" className="hidden" accept=".xlsx, .xls, .csv" onChange={handleInvoiceFileUpload} /></label>
                     <Button onClick={() => { setEditingInvoice(null); setActiveTab('create_invoice'); }} icon={Plus}>Create New</Button>
                  </div>
                </div>
+               
                <Card className="overflow-hidden">
                  <div className="overflow-x-auto">
                    <table className="w-full text-sm text-left">
                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50 dark:text-slate-400">
                        <tr>
-                         <TableHeader label="Invoice ID" sortKey="id" />
+                         <TableHeader label="ID" sortKey="id" />
                          <TableHeader label="Client" sortKey="client" />
+                         <th className="px-6 py-4">Description</th> {/* New */}
                          <TableHeader label="Date" sortKey="date" />
-                         <TableHeader label="Amount" sortKey="amount" className="text-right justify-end" />
+                         <TableHeader label="Amount" sortKey="amount" className="text-right" />
+                         <th className="px-6 py-4 text-right">ROE</th> {/* New */}
+                         <th className="px-6 py-4 text-right">INR Amount</th> {/* New */}
                          <TableHeader label="Status" sortKey="status" />
+                         <th className="px-6 py-4">Date Paid</th> {/* New */}
                          <th className="px-6 py-4 text-center">Actions</th>
                        </tr>
                      </thead>
                      <tbody>
-                       {paginatedInvoices.map((inv) => (
-                         <tr 
-                            key={inv.id} 
-                            className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
-                            onClick={() => setViewingInvoice(inv)}
-                         >
-                           <td className="px-6 py-4 font-medium">{inv.id}</td>
-                           <td className="px-6 py-4">{inv.client?.name || 'Unknown'}</td>
-                           <td className="px-6 py-4">{formatDate(inv.date)}</td>
-                           <td className="px-6 py-4 font-medium text-right">{inv.currency} {parseFloat(inv.amount).toLocaleString()}</td>
-                           <td className="px-6 py-4"><Badge type={inv.status === 'Paid' ? 'success' : 'warning'}>{inv.status}</Badge></td>
-                           <td className="px-6 py-4 flex justify-center gap-2">
-                              {inv.status !== 'Paid' && <button onClick={(e) => { e.stopPropagation(); handleMarkAsPaid(inv); }} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded"><CheckCircle size={18} /></button>}
-                              <button onClick={(e) => { e.stopPropagation(); generateInvoicePDF(inv, userSettings, addToast); }} className="p-1 text-blue-600 hover:bg-blue-50 rounded"><Printer size={18} /></button>
-                              <button onClick={(e) => { e.stopPropagation(); setEditingInvoice(inv); setActiveTab('create_invoice'); }} className="p-1 text-slate-600 hover:bg-slate-200 rounded"><Edit size={18} /></button>
-                              <button onClick={(e) => { e.stopPropagation(); setInvoiceToDelete(inv.id); setDeleteModalOpen(true); }} className="p-1 text-red-600 hover:bg-red-50 rounded"><Trash2 size={18} /></button>
-                           </td>
-                         </tr>
-                       ))}
+                       {paginatedInvoices.map((inv) => {
+                         // Calculations for Row
+                         const roe = parseFloat(inv.exchange_rate || inv.exchangeRate || 1);
+                         const amount = parseFloat(inv.amount);
+                         const inrAmount = amount * roe;
+                         const desc = inv.items && inv.items.length > 0 ? inv.items[0].desc : 'No description';
+                         
+                         return (
+                           <tr 
+                              key={inv.id} 
+                              className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                              onClick={() => setViewingInvoice(inv)}
+                           >
+                             <td className="px-6 py-4 font-medium">{inv.id}</td>
+                             <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">{inv.client?.name || 'Unknown'}</td>
+                             <td className="px-6 py-4 text-slate-500 max-w-[200px] truncate" title={desc}>{desc}</td>
+                             <td className="px-6 py-4 whitespace-nowrap">{formatDate(inv.date)}</td>
+                             <td className="px-6 py-4 font-medium text-right whitespace-nowrap">{inv.currency} {amount.toLocaleString()}</td>
+                             <td className="px-6 py-4 text-right text-slate-500">{roe.toFixed(2)}</td>
+                             <td className="px-6 py-4 text-right font-bold text-slate-700 dark:text-slate-200">₹ {inrAmount.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>
+                             <td className="px-6 py-4"><Badge type={inv.status === 'Paid' ? 'success' : 'warning'}>{inv.status}</Badge></td>
+                             <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">{inv.status === 'Paid' ? formatDate(inv.date) : '-'}</td>
+                             <td className="px-6 py-4 flex justify-center gap-2">
+                                {inv.status !== 'Paid' && <button onClick={(e) => { e.stopPropagation(); handleMarkAsPaid(inv); }} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded" title="Mark Paid"><CheckCircle size={16} /></button>}
+                                <button onClick={(e) => { e.stopPropagation(); generateInvoicePDF(inv, userSettings, addToast); }} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="PDF"><Printer size={16} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setEditingInvoice(inv); setActiveTab('create_invoice'); }} className="p-1 text-slate-600 hover:bg-slate-200 rounded" title="Edit"><Edit size={16} /></button>
+                                <button onClick={(e) => { e.stopPropagation(); setInvoiceToDelete(inv.id); setDeleteModalOpen(true); }} className="p-1 text-red-600 hover:bg-red-50 rounded" title="Delete"><Trash2 size={16} /></button>
+                             </td>
+                           </tr>
+                         );
+                       })}
                        {processedInvoices.length === 0 && (
-                          <tr><td colSpan="6" className="text-center py-6 text-slate-500">No invoices found matching "{searchQuery}" in {selectedFY}</td></tr>
+                          <tr><td colSpan="10" className="text-center py-10 text-slate-500">No invoices found matching "{searchQuery}" in {selectedFY}</td></tr>
                        )}
                      </tbody>
                    </table>
