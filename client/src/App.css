@@ -40,3 +40,36 @@
 .read-the-docs {
   color: #888;
 }
+
+/* ------------------------------
+   RESIZABLE TABLE COLUMNS
+------------------------------ */
+.resizable-col {
+  position: relative;
+  overflow: hidden;
+  white-space: nowrap;
+  padding-right: 6px;
+}
+
+/* Allow manual resizing */
+.resizable-col {
+  resize: horizontal;
+  overflow: auto;
+  min-width: 80px;  /* You can adjust */
+  max-width: 600px; /* You can adjust */
+}
+
+/* Prevent text from clipping */
+.resizable-col > div,
+.resizable-col > span {
+  display: inline-block;
+}
+
+/* Handle for resizing */
+.resizable-col::-webkit-resizer {
+  background: #ddd;
+  width: 4px;
+  height: 100%;
+  cursor: col-resize;
+}
+
