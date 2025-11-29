@@ -26,8 +26,106 @@ import SettingsPage from './components/features/SettingsPage';
 import InvoiceViewModal from './components/features/InvoiceViewModal';
 import { generateInvoicePDF } from './lib/pdf-generator';
 
+// === SUPER ENHANCED RESIZABLE COLUMN HEADER ===
+function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align }) {
+  const STORAGE_KEY = `invoice_col_${label.replace(/\s+/g, "_").toLowerCase()}`;
+
+  const thRef = React.useRef(null);
+  const startX = React.useRef(null);
+  const startWidth = React.useRef(null);
+
+  // 1️⃣ Load saved width from localStorage
+  const [width, setWidth] = React.useState(() => {
+    const saved = localStorage.getItem(STORAGE_KEY);
+    return saved ? parseInt(saved, 10) : 150;
+  });
+
+  // 2️⃣ Save width to localStorage on change
+  React.useEffect(() => {
+    localStorage.setItem(STORAGE_KEY, width);
+  }, [width]);
+
+  // 3️⃣ Handle drag start
+  const handleMouseDown = (e) => {
+    e.preventDefault();
+    startX.current = e.clientX;
+    startWidth.current = thRef.current.offsetWidth;
+
+    document.body.style.userSelect = "none";
+    document.addEventListener("mousemove", handleMouseMove);
+    document.addEventListener("mouseup", handleMouseUp);
+  };
+
+  // 4️⃣ Mouse move while dragging
+  const handleMouseMove = (e) => {
+    const delta = e.clientX - startX.current;
+    const newWidth = Math.max(80, startWidth.current + delta);
+    setWidth(newWidth);
+  };
+
+  // 5️⃣ Mouse up: stop events + restore selection
+  const handleMouseUp = () => {
+    document.body.style.userSelect = "auto";
+    document.removeEventListener("mousemove", handleMouseMove);
+    document.removeEventListener("mouseup", handleMouseUp);
+  };
+
+  // 6️⃣ Auto-fit width on double click
+  const handleDoubleClick = () => {
+    if (!thRef.current) return;
+    const contentWidth = thRef.current.scrollWidth + 24; // some padding
+    const autoWidth = Math.max(120, contentWidth);
+    setWidth(autoWidth);
+  };
+
+  return (
+    <th
+      ref={thRef}
+      style={{ width, minWidth: width, maxWidth: width }}
+      className={`relative px-6 py-4 select-none whitespace-nowrap ${
+        align === "right" ? "text-right" : align === "center" ? "text-center" : ""
+      }`}
+    >
+      {/* Sortable Header */}
+      <div
+        className="flex items-center gap-1 cursor-pointer"
+        onClick={() => !noSort && onSort(sortKey)}
+        onDoubleClick={handleDoubleClick}
+      >
+        {label}
+
+        {!noSort && (
+          <div className="flex flex-col text-slate-400">
+            {sortConfig.key === sortKey && sortConfig.direction === "asc" ? (
+              <ChevronUp size={14} className="text-[#3194A0]" />
+            ) : (
+              <ChevronUp size={14} className="opacity-20" />
+            )}
+            {sortConfig.key === sortKey && sortConfig.direction === "desc" ? (
+              <ChevronDown size={14} className="text-[#3194A0]" />
+            ) : (
+              <ChevronDown size={14} className="opacity-20" />
+            )}
+          </div>
+        )}
+      </div>
+
+      {/* Resize Drag Handle */}
+      <div
+        onMouseDown={handleMouseDown}
+        className="absolute top-0 right-0 w-2 h-full cursor-col-resize hover:bg-slate-400/30"
+      />
+    </th>
+  );
+}
+
+
+
+
 export default function App() {
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    return localStorage.getItem('activeTab') || 'dashboard';
+  });
   //const [darkMode, setDarkMode] = useState(false);
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
@@ -225,7 +323,12 @@ const handleSaveInvoice = async (newInvoice) => {
         
         addToast(isUpdate ? "Invoice updated!" : "Invoice created!", "success");
         setEditingInvoice(null);
-        setActiveTab('invoices');
+        setActiveTab(tab => {
+          const finalTab = typeof tab === "string" ? tab : tab; 
+          localStorage.setItem("activeTab", finalTab);
+          return finalTab;
+        });
+
         loadData(); 
     } catch (e) { addToast(`Error: ${e.message}`, "error"); }
   };
@@ -684,7 +787,13 @@ const parseDate = (value) => {
           invoice={viewingInvoice}
           userSettings={userSettings}
           onClose={() => setViewingInvoice(null)}
-          onEdit={(inv) => { setViewingInvoice(null); setEditingInvoice(inv); setActiveTab('create_invoice'); }}
+          onEdit={(inv) => { setViewingInvoice(null); setEditingInvoice(inv); 
+            setActiveTab(tab => {
+              const finalTab = typeof tab === "string" ? tab : tab; 
+              localStorage.setItem("activeTab", finalTab);
+              return finalTab;
+            });
+            }}
           addToast={addToast}
         />
       )}
@@ -709,7 +818,13 @@ const parseDate = (value) => {
         </div>
         <nav className="p-4 space-y-1">
           {navItems.map((item) => (
-            <button key={item.id} onClick={() => { setActiveTab(item.id); if (item.id === 'create_invoice') setEditingInvoice(null); }} className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors ${activeTab === item.id ? 'bg-[#3194A0]/10 text-[#3194A0]' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
+            <button key={item.id} 
+                onClick={() => {
+                  localStorage.setItem("activeTab", item.id);
+                  setActiveTab(item.id);
+                  if (item.id === 'create_invoice') setEditingInvoice(null);
+                }}
+                className={`flex items-center w-full px-4 py-3 text-sm font-medium rounded-lg transition-colors ${activeTab === item.id ? 'bg-[#3194A0]/10 text-[#3194A0]' : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-700'}`}>
               <item.icon size={18} className="mr-3" /> {item.label}
             </button>
           ))}
@@ -819,20 +934,21 @@ const parseDate = (value) => {
                </div>
                
                <Card className="overflow-hidden">
-                 <div className="overflow-x-auto">
-                   <table className="w-full text-sm text-left">
+                 <div className="overflow-hidden w-full">
+                   <table className="w-full text-sm text-left table-auto">
                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50 dark:text-slate-400">
                        <tr>
-                         <TableHeader label="ID" sortKey="id" />
-                         <TableHeader label="Client" sortKey="client" />
-                         <th className="px-6 py-4">Description</th> {/* New */}
-                         <TableHeader label="Date" sortKey="date" />
-                         <TableHeader label="Amount" sortKey="amount" className="text-right" />
-                         <th className="px-6 py-4 text-right">ROE</th> {/* New */}
-                         <th className="px-6 py-4 text-right">INR Amount</th> {/* New */}
-                         <TableHeader label="Status" sortKey="status" />
-                         <th className="px-6 py-4">Date Paid</th> {/* New */}
-                         <th className="px-6 py-4 text-center">Actions</th>
+                        {/*-- Resizable Table Headers --*/}
+                        <ResizableTH label="ID" sortKey="id" onSort={handleSort} sortConfig={sortConfig} />
+                        <ResizableTH label="Client" sortKey="client" onSort={handleSort} sortConfig={sortConfig} />
+                        <ResizableTH label="Description" noSort={true} /> {/* New */}
+                        <ResizableTH label="Date" sortKey="date" onSort={handleSort} sortConfig={sortConfig} />
+                        <ResizableTH label="Amount" sortKey="amount" onSort={handleSort} sortConfig={sortConfig} align="right" />
+                        <ResizableTH label="ROE" noSort={true} align="right" /> {/* New */}
+                        <ResizableTH label="INR Amount" noSort ={true} align="right"  /> {/* New */}
+                        <ResizableTH label="Status" sortKey="status" onSort={handleSort} sortConfig={sortConfig} />
+                        <ResizableTH label="Date Paid" noSort={true}/> {/* New */}
+                        <ResizableTH label="Actions" noSort={true} align="right" />
                        </tr>
                      </thead>
                      <tbody>

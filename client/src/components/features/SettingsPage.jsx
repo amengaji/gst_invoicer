@@ -5,6 +5,8 @@ import Button from '../ui/Button';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import { STATES, CURRENCIES } from '../../lib/constants';
+import * as XLSX from "xlsx";
+
 
 const SettingsPage = ({ settings, onSave, addToast }) => {
   const [formData, setFormData] = useState({
@@ -67,6 +69,44 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
       addToast("Bank account duplicated.", "info");
   };
 
+
+  const handleBankImport = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    try {
+        const data = await file.arrayBuffer();
+        const workbook = XLSX.read(data);
+        const sheet = workbook.Sheets[workbook.SheetNames[0]];
+        const rows = XLSX.utils.sheet_to_json(sheet);
+
+        const imported = rows.map(r => ({
+            currency: r.Currency || "INR",
+            bankName: r.BankName || "",
+            accountNo: r.AccountNo || "",
+            ifsc: r.IFSC || "",
+            swift: r.SWIFT || "",
+            branch: r.Branch || ""
+        }));
+
+        setFormData(prev => ({
+            ...prev,
+            bank_accounts: [...prev.bank_accounts, ...imported]
+        }));
+
+        addToast("Bank accounts imported!", "success");
+
+    } catch (err) {
+        console.error(err);
+        addToast("Failed to import bank accounts", "error");
+    }
+
+    e.target.value = null;
+};
+
+
+
+
   return (
     <div className="max-w-4xl mx-auto space-y-6 pb-10">
       <div className="flex justify-between items-center">
@@ -119,7 +159,21 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
                     <Landmark className="text-[#3194A0]" size={20} />
                     <h3 className="font-semibold text-lg dark:text-white">Bank Accounts</h3>
                 </div>
-                <Button variant="ghost" onClick={addBankAccount} icon={Plus} className="text-sm">Add Bank</Button>
+                <div className="flex gap-2">
+                  <Button
+                      variant="ghost"
+                      onClick={addBankAccount}
+                      icon={Plus} 
+                      className="text-sm"
+                  >
+                      Add Bank
+                    </Button>
+                    <label className="cursor-pointer px-3 py-2 bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 rounded-lg text-xs font-medium hover:bg-slate-100 dark:hover:bg-slate-700 transition-all flex items-center gap-1">
+                      <Upload size={14} className = "text-blue-600"/> 
+                      Import (.xlsx)
+                      <input type="file" className="hidden" accept=".xlsx" onChange={handleBankImport} />
+                    </label>
+                </div>
             </div>
             
             <div className="space-y-6">

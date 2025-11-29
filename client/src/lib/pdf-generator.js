@@ -447,7 +447,7 @@ const drawWatermark = async () => {
   doc.setTextColor(...colors.textSecondary);
   doc.setFont("helvetica", "normal");
   const paymentNotes =
-    "Payment is due within 30 days of the invoice issue date. A late fee of 1.5% per month will be applied to overdue balances. Thank you for your continued partnership!";
+    "Payment is due within 7 days of the invoice issue date. A late fee of 15% per month will be applied to overdue balances. Thank you for your continued partnership!";
   const pNoteLines = doc.splitTextToSize(paymentNotes, colWidth);
   doc.text(pNoteLines, margin, notesY + 8);
 
