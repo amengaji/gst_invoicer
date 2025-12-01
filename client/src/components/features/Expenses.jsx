@@ -1,5 +1,6 @@
+// client/src/components/features/Expenses.jsx
 import React, { useState, useEffect, useMemo } from 'react';
-import { Receipt, Plus, Paperclip, Trash2, Loader2, Edit, Copy, IndianRupee, PieChart } from 'lucide-react';
+import { Receipt, Paperclip, Trash2, Loader2, Edit, Copy, IndianRupee, PieChart } from 'lucide-react';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import Input from '../ui/Input';
@@ -13,19 +14,42 @@ const Expenses = ({ addToast }) => {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 5;
 
-
   // Form State
   const initialForm = { category: '', date: new Date().toISOString().split('T')[0], amount: '', gst_paid: '', receipt: null, receiptName: '' };
   const [form, setForm] = useState(initialForm);
   const [errors, setErrors] = useState({});
   const [editingId, setEditingId] = useState(null);
 
+  // --- Helper: Authenticated Fetch ---
+  const authFetch = async (url, options = {}) => {
+      const token = localStorage.getItem('token');
+      const headers = {
+          ...options.headers,
+          'Authorization': `Bearer ${token}`,
+          'Content-Type': 'application/json'
+      };
+
+      const res = await fetch(url, { ...options, headers });
+
+      if (res.status === 401 || res.status === 403) {
+          localStorage.removeItem('token');
+          window.location.reload(); // Force logout
+          return null;
+      }
+      return res;
+  };
+
   // --- API: Fetch Expenses ---
   const fetchExpenses = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/expenses');
-      const data = await res.json();
-      setExpenses(Array.isArray(data) ? data : []);
+      const res = await authFetch('http://localhost:5000/api/expenses');
+      if (res && res.ok) {
+          const data = await res.json();
+          setExpenses(Array.isArray(data) ? data : []);
+      } else {
+          // Only show toast if it wasn't an auth error (which reloads)
+          if(res) addToast("Failed to fetch expenses", "error");
+      }
     } catch (error) {
       addToast("Failed to fetch expenses", "error");
     } finally {
@@ -89,9 +113,13 @@ const Expenses = ({ addToast }) => {
   const handleDelete = async (id) => {
       if(!window.confirm("Delete this expense?")) return;
       try {
-          await fetch(`http://localhost:5000/api/expenses/${id}`, { method: 'DELETE' });
-          addToast("Expense deleted", "success");
-          fetchExpenses();
+          const res = await authFetch(`http://localhost:5000/api/expenses/${id}`, { method: 'DELETE' });
+          if(res && res.ok) {
+              addToast("Expense deleted", "success");
+              fetchExpenses();
+          } else {
+              addToast("Delete failed", "error");
+          }
       } catch (e) {
           addToast("Delete failed", "error");
       }
@@ -108,8 +136,8 @@ const Expenses = ({ addToast }) => {
     const newErrors = {};
     if (!form.category) newErrors.category = true;
     if (!form.amount) newErrors.amount = true;
-    // Receipt is mandatory only for new expenses, optional for updates if already there? 
-    // For now, let's keep it mandatory but check if form has it.
+    
+    // Receipt Validation Logic
     if (!form.receipt) newErrors.receipt = true;
 
     if (Object.keys(newErrors).length > 0) {
@@ -132,17 +160,18 @@ const Expenses = ({ addToast }) => {
       
       const method = editingId ? 'PUT' : 'POST';
 
-      const res = await fetch(url, {
+      const res = await authFetch(url, {
         method: method,
-        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
       });
 
-      if (!res.ok) throw new Error("Failed to save");
-
-      addToast(editingId ? "Expense updated!" : "Expense added!", "success");
-      handleCancel();
-      fetchExpenses(); 
+      if (res && res.ok) {
+          addToast(editingId ? "Expense updated!" : "Expense added!", "success");
+          handleCancel();
+          fetchExpenses(); 
+      } else {
+          throw new Error("Failed to save");
+      }
     } catch (error) {
       addToast("Error saving expense", "error");
     }
@@ -151,7 +180,7 @@ const Expenses = ({ addToast }) => {
   const paginatedExpenses = expenses.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
     currentPage * ITEMS_PER_PAGE
-    );
+  );
 
   if (isLoading) return <div className="p-8 text-center"><Loader2 className="animate-spin mx-auto"/> Loading Expenses...</div>;
 
@@ -262,12 +291,18 @@ const Expenses = ({ addToast }) => {
           
           {expenses.length === 0 && <p className="text-center text-slate-500 py-10">No expenses recorded yet.</p>}
         </div>
-        <Pagination 
-         currentPage={currentPage}
-         totalItems={expenses.length}
-         pageSize={ITEMS_PER_PAGE}
-         onPageChange={setCurrentPage}
-        />
+        
+        {/* Pagination at the bottom */}
+        {expenses.length > 0 && (
+            <div className="col-span-full">
+                <Pagination 
+                    currentPage={currentPage}
+                    totalItems={expenses.length}
+                    pageSize={ITEMS_PER_PAGE}
+                    onPageChange={setCurrentPage}
+                />
+            </div>
+        )}
       </div>
     </div>
   );
