@@ -1,3 +1,4 @@
+// server/routes/api.js
 const express = require('express');
 const router = express.Router();
 
@@ -7,6 +8,13 @@ const expenseController = require('../controllers/expenseController');
 const invoiceController = require('../controllers/invoiceController');
 const settingsController = require('../controllers/settingsController');
 const authMiddleware = require('../middleware/auth');
+const backupController = require('../controllers/backupController');
+const auth = require('../middleware/auth'); // Assuming you have auth middleware
+
+
+// Backup & Restore Routes
+router.get('/backup', auth, backupController.createBackup);
+router.post('/backup', auth, backupController.restoreBackup);
 
 // --- Public Routes ---
 router.post('/register', authController.register);

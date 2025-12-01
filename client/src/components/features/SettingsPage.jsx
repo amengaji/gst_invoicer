@@ -1,7 +1,8 @@
+// client/src/components/features/SettingsPage.jsx
 import React, { useState } from 'react';
 import { 
   Briefcase, Upload, Save, FileText, Landmark, Plus, Trash2, Copy,
-  AlertTriangle, CheckCircle, Info
+  AlertTriangle, CheckCircle, Info, Database, DownloadCloud, UploadCloud
 } from 'lucide-react';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
@@ -9,6 +10,9 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import { STATES, CURRENCIES } from '../../lib/constants';
 import * as XLSX from 'xlsx';
+
+// Define API URL
+const API_URL = 'http://localhost:5000';
 
 const KNOWN_IFSC_PREFIXES = {
   HDFC: 'HDFC',
@@ -183,6 +187,7 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
     number_format: settings.number_format || 'IN',
   });
   const [saved, setSaved] = useState(false);
+  const [isRestoring, setIsRestoring] = useState(false);
 
   // Import / preview state
   const [importPreview, setImportPreview] = useState([]);
@@ -399,6 +404,73 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
     setImportStats(null);
 
     addToast(`Imported ${mapped.length} bank accounts.`, 'success');
+  };
+
+  // --- NEW: Backup & Restore Handlers ---
+  const handleDownloadBackup = async () => {
+    try {
+        const token = localStorage.getItem('token');
+        const res = await fetch(`${API_URL}/api/backup`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        });
+        
+        if (!res.ok) throw new Error("Backup failed");
+        
+        const blob = await res.blob();
+        const url = window.URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Zenith_Backup_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        addToast("Backup downloaded successfully!", "success");
+    } catch (e) {
+        addToast("Failed to download backup", "error");
+    }
+  };
+
+  const handleRestoreBackup = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    if (!window.confirm("WARNING: This will DELETE all current data and replace it with the backup. Are you sure?")) {
+        e.target.value = null;
+        return;
+    }
+
+    setIsRestoring(true);
+    const reader = new FileReader();
+    
+    reader.onload = async (event) => {
+        try {
+            const jsonData = JSON.parse(event.target.result);
+            const token = localStorage.getItem('token');
+
+            const res = await fetch(`${API_URL}/api/backup`, {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify(jsonData)
+            });
+
+            if (!res.ok) throw new Error("Restore failed");
+
+            addToast("Data restored successfully! Reloading...", "success");
+            setTimeout(() => window.location.reload(), 1500);
+
+        } catch (err) {
+            console.error(err);
+            addToast("Invalid backup file or server error", "error");
+        } finally {
+            setIsRestoring(false);
+            e.target.value = null;
+        }
+    };
+    
+    reader.readAsText(file);
   };
 
   return (
@@ -680,10 +752,60 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
             />
           </div>
         </Card>
+
+        {/* --- NEW: Data Backup & Recovery Section --- */}
+        <Card className="p-6 border-l-4 border-l-purple-500">
+            <div className="flex items-center gap-2 mb-4">
+                <Database className="text-[#3194A0]" size={20} />
+                <h3 className="text-lg font-bold text-slate-800 dark:text-white">Data Backup</h3>
+            </div>
+            
+            <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+                <div className="space-y-1">
+                    <h4 className="font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        Backup Your Data
+                        <CheckCircle size={16} className="text-emerald-500"/>
+                    </h4>
+                    <p className="text-sm text-slate-500 max-w-md">
+                        Download a full JSON copy of your clients, invoices, expenses, and settings. 
+                    </p>
+                </div>
+                <Button onClick={handleDownloadBackup} variant="outline" className="border-purple-200 hover:bg-purple-50 text-purple-700 dark:border-purple-800 dark:text-purple-300 dark:hover:bg-purple-900/20">
+                    <DownloadCloud size={18} className="mr-2"/> Download Backup
+                </Button>
+            </div>
+
+            <hr className="my-6 border-slate-100 dark:border-slate-700" />
+
+            <div className="flex flex-col md:flex-row justify-between items-center gap-6">
+                <div className="space-y-1">
+                    <h4 className="font-bold text-red-600 flex items-center gap-2">
+                        <AlertTriangle size={18}/>
+                        Restore Data
+                    </h4>
+                    <p className="text-sm text-slate-500 max-w-md">
+                        Upload a previously downloaded backup file. 
+                        <span className="font-bold text-red-500"> Warning: This will completely replace your current data.</span>
+                    </p>
+                </div>
+                <label className="cursor-pointer">
+                    <input type="file" accept=".json" onChange={handleRestoreBackup} className="hidden" disabled={isRestoring}/>
+                    <div className={`flex items-center px-4 py-2 rounded-lg font-medium transition-colors ${isRestoring ? 'bg-slate-100 text-slate-400' : 'bg-red-50 text-red-600 hover:bg-red-100 border border-red-200'}`}>
+                        {isRestoring ? (
+                            <span>Restoring...</span>
+                        ) : (
+                            <>
+                                <UploadCloud size={18} className="mr-2"/> 
+                                Restore from File
+                            </>
+                        )}
+                    </div>
+                </label>
+            </div>
+        </Card>
       </div>
 
-      {/* INLINE PREVIEW MODAL */}
-      {/* IMPORT PREVIEW MODAL (full-screen, sticky header/footer) */}
+      {/* IMPORT PREVIEW MODAL */}
       {showImportPreview && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-2 sm:px-4">
           <div

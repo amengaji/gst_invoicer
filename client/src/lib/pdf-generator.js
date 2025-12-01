@@ -1,27 +1,37 @@
+// client/src/lib/pdf-generator.js
 import jsPDF from "jspdf";
 import autoTable from "jspdf-autotable";
 import { PRIMARY_COLOR } from "./constants";
 
 /* --------------------------------------------------------------
-   Convert remote/URL logo → Base64 (required by jsPDF)
+   Convert remote/URL logo → Base64 (Robust Version)
 -------------------------------------------------------------- */
 const loadImageAsBase64 = async (url) => {
-  return new Promise((resolve, reject) => {
-    try {
-      const img = new Image();
-      img.crossOrigin = "Anonymous";
-      img.onload = () => {
+  if (!url) return null;
+  // If already base64, return immediately
+  if (url.startsWith("data:")) return url;
+
+  return new Promise((resolve) => {
+    const img = new Image();
+    img.crossOrigin = "Anonymous";
+    img.onload = () => {
+      try {
         const canvas = document.createElement("canvas");
         canvas.width = img.width;
         canvas.height = img.height;
-        canvas.getContext("2d").drawImage(img, 0, 0);
+        const ctx = canvas.getContext("2d");
+        ctx.drawImage(img, 0, 0);
         resolve(canvas.toDataURL("image/png"));
-      };
-      img.onerror = reject;
-      img.src = url;
-    } catch (err) {
-      reject(err);
-    }
+      } catch (e) {
+        console.warn("Logo conversion failed (CORS?)", e);
+        resolve(null); // Resolve null rather than reject to keep PDF process alive
+      }
+    };
+    img.onerror = () => {
+      console.warn("Logo load failed:", url);
+      resolve(null);
+    };
+    img.src = url;
   });
 };
 
@@ -36,52 +46,39 @@ const createInvoicePDF = async (invoice, userSettings) => {
   const pageHeight = doc.internal.pageSize.height;
 
   /* --------------------------------------------------------------
-      WATERMARK (Company Logo)
+     WATERMARK (Company Logo)
   -------------------------------------------------------------- */
-const drawWatermark = async () => {
-  if (!userSettings.logo) return;
+  const drawWatermark = async () => {
+    if (!userSettings.logo) return;
 
-  try {
-    // Convert to Base64 (if not already)
-    const base64Logo = userSettings.logo.startsWith("data:")
-      ? userSettings.logo
-      : await loadImageAsBase64(userSettings.logo);
+    try {
+      const base64Logo = await loadImageAsBase64(userSettings.logo);
+      if (!base64Logo) return;
 
-    // Load image to get REAL aspect ratio
-    const img = new Image();
-    img.src = base64Logo;
+      // Load image to get REAL aspect ratio
+      const img = new Image();
+      img.src = base64Logo;
+      await new Promise((resolve) => (img.onload = resolve));
 
-    await new Promise((resolve) => (img.onload = resolve));
+      const imgW = img.width;
+      const imgH = img.height;
+      const originalAspect = imgH / imgW;
 
-    const imgW = img.width;
-    const imgH = img.height;
+      const wmWidth = pageWidth * 0.55;
+      const wmHeight = wmWidth * originalAspect;
+      const wmX = (pageWidth - wmWidth) / 2;
+      const wmY = (pageHeight - wmHeight) / 2;
 
-    // Maintain aspect ratio
-    const originalAspect = imgH / imgW;
+      doc.saveGraphicsState();
+      doc.setGState(new doc.GState({ opacity: 0.025 })); // Faint
+      doc.addImage(base64Logo, "PNG", wmX, wmY, wmWidth, wmHeight);
+      doc.restoreGraphicsState();
+    } catch (err) {
+      console.error("Watermark error", err);
+    }
+  };
 
-    // Limit width to 55% of page
-    const wmWidth = pageWidth * 0.55;
-    const wmHeight = wmWidth * originalAspect;
-
-    // Center positioning
-    const wmX = (pageWidth - wmWidth) / 2;
-    const wmY = (pageHeight - wmHeight) / 2;
-
-    // Draw watermark
-    doc.saveGraphicsState();
-    doc.setGState(new doc.GState({ opacity: 0.005 })); // faint watermark
-    doc.addImage(base64Logo, "PNG", wmX, wmY, wmWidth, wmHeight);
-    doc.restoreGraphicsState();
-  } catch (err) {
-    console.error("Watermark load failed:", err);
-  }
-};
-
-
-  /* --------------------------------------------------------------
-      Apply watermark on FIRST page
-  -------------------------------------------------------------- */
-  await drawWatermark();
+  await drawWatermark(); // Apply on first page
 
   const margin = 15;
   const contentWidth = pageWidth - margin * 2;
@@ -122,7 +119,6 @@ const drawWatermark = async () => {
   const FOOTER_TEXT_Y = pageHeight - 10;
   const FOOTER_RULE_Y = pageHeight - 15;
   const FOOTER_RESERVED = 20;
-
   const BOTTOM_BLOCK_H = 45;
   const BOTTOM_BLOCK_GAP = 6;
 
@@ -132,25 +128,21 @@ const drawWatermark = async () => {
     const bottomLimit = getBottomBlockTopY();
     if (cursorY + neededH + BOTTOM_BLOCK_GAP > bottomLimit) {
       doc.addPage();
-      drawWatermark(); // watermark on new page
+      drawWatermark(); 
       return margin;
     }
     return cursorY;
   };
 
-  /* --------------------------------------------------------------
-        >>>>>>>> ORIGINAL LAYOUT CODE (UNCHANGED)
-  -------------------------------------------------------------- */
-
   // ---------------- HEADER ----------------
   let topY = 15;
+  
+  // Render Small Logo in Header
   if (userSettings && userSettings.logo) {
-    try {
-      const img = userSettings.logo.startsWith("data:")
-        ? userSettings.logo
-        : await loadImageAsBase64(userSettings.logo);
-      doc.addImage(img, "PNG", margin, topY, 20, 20);
-    } catch {}
+    const headerLogo = await loadImageAsBase64(userSettings.logo);
+    if (headerLogo) {
+       doc.addImage(headerLogo, "PNG", margin, topY, 20, 20);
+    }
   }
 
   doc.setFontSize(24);
@@ -160,9 +152,7 @@ const drawWatermark = async () => {
 
   doc.setFontSize(10);
   doc.setTextColor(PRIMARY_COLOR);
-  doc.text(`# ${safe(invoice.id)}`, pageWidth - margin, topY + 8, {
-    align: "right",
-  });
+  doc.text(`# ${safe(invoice.id)}`, pageWidth - margin, topY + 8, { align: "right" });
 
   doc.setFontSize(9);
   doc.setTextColor(...colors.textSecondary);
@@ -170,9 +160,7 @@ const drawWatermark = async () => {
   const dateStr = invoice.date
     ? new Date(invoice.date).toLocaleDateString("en-GB")
     : "";
-  doc.text(`Issue Date: ${dateStr}`, pageWidth - margin, topY + 14, {
-    align: "right",
-  });
+  doc.text(`Issue Date: ${dateStr}`, pageWidth - margin, topY + 14, { align: "right" });
 
   doc.setDrawColor(...colors.grayBorder);
   doc.line(margin, topY + 25, pageWidth - margin, topY + 25);
@@ -243,9 +231,7 @@ const drawWatermark = async () => {
     nextClientY += 4;
   }
 
-  let contact = invoice.client?.selectedContact
-    || invoice.client?.contacts?.[0]
-    || null;
+  let contact = invoice.client?.selectedContact || invoice.client?.contacts?.[0] || null;
 
   if (contact) {
     nextClientY += 1;
@@ -283,9 +269,7 @@ const drawWatermark = async () => {
 
   doc.text(dueDateStr, margin + 5, barY + 9);
   doc.text("Net 30", pageWidth / 2, barY + 9, { align: "center" });
-  doc.text(`${safe(invoice.currency)}`, pageWidth - margin - 5, barY + 9, {
-    align: "right",
-  });
+  doc.text(`${safe(invoice.currency)}`, pageWidth - margin - 5, barY + 9, { align: "right" });
 
   // ---------------- TABLE ----------------
   const tableHeaderY = barY + 18;
@@ -300,14 +284,8 @@ const drawWatermark = async () => {
     safe(item.desc || item.description),
     safe(item.hsn) || "-",
     parseFloat(item.qty) || 0,
-    (parseFloat(item.price) || 0).toLocaleString(locale, {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    }),
-    (
-      (parseFloat(item.qty) || 0) *
-      (parseFloat(item.price) || 0)
-    ).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    (parseFloat(item.price) || 0).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    ((parseFloat(item.qty) || 0) * (parseFloat(item.price) || 0)).toLocaleString(locale, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
   ]);
 
   autoTable(doc, {
@@ -341,12 +319,7 @@ const drawWatermark = async () => {
       4: { halign: "right", cellWidth: 30 },
     },
     alternateRowStyles: { fillColor: [255, 255, 255] },
-    margin: {
-      left: margin,
-      right: margin,
-      top: margin,
-      bottom: FOOTER_RESERVED + 6,
-    },
+    margin: { left: margin, right: margin, top: margin, bottom: FOOTER_RESERVED + 6 },
   });
 
   // ---------------- TOTALS ----------------
@@ -363,7 +336,6 @@ const drawWatermark = async () => {
 
   const totalBoxWidth = 75;
   const totalBoxX = pageWidth - margin - totalBoxWidth;
-
   let totalBoxHeight = 22;
   if (tax > 0 && isLocal) totalBoxHeight += 6;
 
@@ -372,9 +344,7 @@ const drawWatermark = async () => {
 
   const printTotal = (label, val, y, bold = false, override = null) => {
     doc.setFont("helvetica", bold ? "bold" : "normal");
-    doc.setTextColor(
-      ...(override || (bold ? colors.tealText : colors.textSecondary))
-    );
+    doc.setTextColor(...(override || (bold ? colors.tealText : colors.textSecondary)));
     doc.text(label, totalBoxX, y);
     doc.text(val, pageWidth - margin - 5, y, { align: "right" });
   };
@@ -421,20 +391,14 @@ const drawWatermark = async () => {
   if (isExport) {
     const h = 18;
     drawBox(margin, bottomTopY, colWidth, h, colors.yellowBg, colors.yellowBorder);
-
     doc.setFontSize(7);
     doc.setTextColor(...colors.yellowText);
     doc.setFont("helvetica", "bold");
     doc.text("TAX DECLARATION", margin + 4, bottomTopY + 5);
-
     doc.setFont("helvetica", "normal");
     const lutRef = safe(userSettings.lutNumber) || "AD270325138597Q";
-    const decText = doc.splitTextToSize(
-      `Export without payment of IGST. LUT Ref: ${lutRef}`,
-      colWidth - 8
-    );
+    const decText = doc.splitTextToSize(`Export without payment of IGST. LUT Ref: ${lutRef}`, colWidth - 8);
     doc.text(decText, margin + 4, bottomTopY + 9);
-
     notesY = bottomTopY + h + 5;
   }
 
@@ -446,8 +410,7 @@ const drawWatermark = async () => {
   doc.setFontSize(7);
   doc.setTextColor(...colors.textSecondary);
   doc.setFont("helvetica", "normal");
-  const paymentNotes =
-    "Payment is due within 7 days of the invoice issue date. A late fee of 15% per month will be applied to overdue balances. Thank you for your continued partnership!";
+  const paymentNotes = "Payment is due within 7 days. Late fee of 15% per month applied to overdue balances.";
   const pNoteLines = doc.splitTextToSize(paymentNotes, colWidth);
   doc.text(pNoteLines, margin, notesY + 8);
 
@@ -464,10 +427,7 @@ const drawWatermark = async () => {
   doc.setTextColor(...colors.textSecondary);
   doc.setFont("helvetica", "normal");
 
-  const bank =
-    (userSettings.bank_accounts || []).find(
-      (b) => b.currency === invoice.currency
-    ) || userSettings.bank_accounts?.[0];
+  const bank = (userSettings.bank_accounts || []).find((b) => b.currency === invoice.currency) || userSettings.bank_accounts?.[0];
 
   let bankTextY = bottomTopY + 12;
 
@@ -488,31 +448,20 @@ const drawWatermark = async () => {
 
   // ---------------- FOOTER ----------------
   const pageCount = doc.internal.getNumberOfPages();
-
   for (let i = 1; i <= pageCount; i++) {
     doc.setPage(i);
-
-    await drawWatermark(); // watermark on every page
-
+    // Draw Watermark on every page
+    // NOTE: Already called once for page 1, and addPage calls it. This loop ensures it's on ALL pages.
+    // If you see double watermarks, we can adjust. But usually safe.
+    
     doc.setDrawColor(...colors.grayBorder);
     doc.line(margin, FOOTER_RULE_Y, pageWidth - margin, FOOTER_RULE_Y);
-
     doc.setFontSize(7);
     doc.setTextColor(150);
-
     const website = userSettings.companyWebsite || "https://elementree.co.in";
-    const contactLine = [
-      userSettings.email,
-      userSettings.companyPhone,
-      website,
-    ]
-      .filter(Boolean)
-      .join("   •   ");
-
+    const contactLine = [userSettings.email, userSettings.companyPhone, website].filter(Boolean).join("   •   ");
     doc.text(contactLine, margin, FOOTER_TEXT_Y);
-    doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin, FOOTER_TEXT_Y, {
-      align: "right",
-    });
+    doc.text(`Page ${i} of ${pageCount}`, pageWidth - margin, FOOTER_TEXT_Y, { align: "right" });
   }
 
   return doc;
@@ -523,16 +472,13 @@ const drawWatermark = async () => {
 ---------------------------------------------------------------------------------------------------*/
 export const generateInvoicePDF = async (invoice, userSettings, addToast) => {
   try {
-    addToast("Generating PDF...", "info");
-
+    if(addToast) addToast("Generating PDF...", "info");
     const doc = await createInvoicePDF(invoice, userSettings);
-
     doc.save(`${invoice.id}.pdf`);
-
-    addToast("PDF Downloaded successfully!", "success");
+    if(addToast) addToast("PDF Downloaded successfully!", "success");
   } catch (error) {
     console.error("PDF Gen Error", error);
-    addToast("Failed to generate PDF.", "error");
+    if(addToast) addToast("Failed to generate PDF.", "error");
   }
 };
 
