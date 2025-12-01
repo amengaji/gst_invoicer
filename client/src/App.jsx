@@ -512,44 +512,44 @@ const handleInvoiceFileUpload = async (e) => {
     // ---------------------
     // 2. PERFECT DATE PARSER
     // ---------------------
-const parseDate = (value) => {
-  if (!value) return null;
+    const parseDate = (value) => {
+      if (!value) return null;
 
-  // If value is number OR a numeric string → Excel serial
-  if (!isNaN(value)) {
-    const serial = Number(value);
+      // If value is number OR a numeric string → Excel serial
+      if (!isNaN(value)) {
+        const serial = Number(value);
 
-    // Valid Excel serial dates fall in 40000–60000 (~1990–2040)
-    if (serial > 40000 && serial < 60000) {
-      const excelEpoch = new Date(1899, 11, 30);
-      const converted = new Date(excelEpoch.getTime() + serial * 86400000);
-      return converted.toISOString().substring(0, 10);
-    }
-  }
+        // Valid Excel serial dates fall in 40000–60000 (~1990–2040)
+        if (serial > 40000 && serial < 60000) {
+          const excelEpoch = new Date(1899, 11, 30);
+          const converted = new Date(excelEpoch.getTime() + serial * 86400000);
+          return converted.toISOString().substring(0, 10);
+        }
+      }
 
-  const str = String(value).trim();
+      const str = String(value).trim();
 
-  // yyyy-mm-dd
-  if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
+      // yyyy-mm-dd
+      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
 
-  // dd-mm-yyyy or dd/mm/yyyy
-  const ddmmyyyy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-  if (ddmmyyyy) {
-    const [_, dd, mm, yyyy] = ddmmyyyy;
-    return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-  }
+      // dd-mm-yyyy or dd/mm/yyyy
+      const ddmmyyyy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
+      if (ddmmyyyy) {
+        const [_, dd, mm, yyyy] = ddmmyyyy;
+        return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
+      }
 
-  // FINAL fallback — only accept reasonable years
-  const test = new Date(str);
-  if (!isNaN(test)) {
-    const year = test.getFullYear();
-    if (year >= 1990 && year <= 2050) {
-      return test.toISOString().substring(0, 10);
-    }
-  }
+      // FINAL fallback — only accept reasonable years
+      const test = new Date(str);
+      if (!isNaN(test)) {
+        const year = test.getFullYear();
+        if (year >= 1990 && year <= 2050) {
+          return test.toISOString().substring(0, 10);
+        }
+      }
 
-  return null;
-};
+      return null;
+    };
 
 
 
@@ -658,7 +658,7 @@ const parseDate = (value) => {
           invoiceNo: invNo,
           client: matchedClient,
           csvClientState: finalState,
-          date: parseDate(getVal(row, "Date")),
+          date: getVal(row, "Date"),
           currency: getVal(row, "Currency") || "INR",
           exchangeRate: exchangeRate || 1,
           isLut: String(getVal(row, "Is LUT")).toUpperCase() === "TRUE",

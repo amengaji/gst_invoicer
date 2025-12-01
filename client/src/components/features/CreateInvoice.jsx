@@ -1,3 +1,4 @@
+// client/src/components/features/CreateInvoice.jsx
 import React, { useState, useEffect } from 'react';
 import { FileText, Plus, Trash2 } from 'lucide-react';
 import Card from '../ui/Card';

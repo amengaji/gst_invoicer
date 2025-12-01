@@ -33,6 +33,49 @@ const inferFormat = (row) => {
 const IFSC_REGEX = /^[A-Z]{4}0[A-Z0-9]{6}$/;
 const SWIFT_REGEX = /^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/;
 
+// Small reusable input for preview table
+const PreviewCellInput = ({
+  value,
+  onChange,
+  error,
+  warning,
+  className = '',
+  type = 'text',
+}) => {
+  const base =
+    'w-full px-2 py-1 rounded text-xs bg-white dark:bg-slate-900 ' +
+    'border outline-none focus:ring-1 focus:ring-[#3194A0] ' +
+    'text-slate-900 dark:text-slate-100 placeholder:text-slate-400 dark:placeholder:text-slate-500';
+
+  const stateClass = error
+    ? 'border-red-400 bg-red-50 dark:bg-red-900/40'
+    : warning
+    ? 'border-amber-400 bg-amber-50 dark:bg-amber-900/30'
+    : 'border-slate-200 dark:border-slate-600';
+
+  return (
+    <div className="flex flex-col gap-0.5">
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        className={`${base} ${stateClass} ${className}`}
+      />
+      {error && (
+        <p className="text-[10px] text-red-500 dark:text-red-400">
+          {typeof error === 'string' ? error : 'Required'}
+        </p>
+      )}
+      {!error && warning && (
+        <p className="text-[10px] text-amber-600 dark:text-amber-400">
+          {typeof warning === 'string' ? warning : 'Recommended'}
+        </p>
+      )}
+    </div>
+  );
+};
+
+
 const buildIfscSuggestion = (bankName, branchCode = '0001') => {
   if (!bankName) return null;
   const upper = bankName.toUpperCase().trim();
@@ -271,19 +314,17 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
   };
 
   const updatePreviewRowField = (index, field, value) => {
-    setImportPreview((prev) => {
-      const next = [...prev];
-      const updated = {
-        ...next[index],
-        [field]: value,
-      };
-      next[index] = validateBankRow(updated);
+    setImportPreview(prev => {
+      const next = prev.map((row, i) => {
+        if (i !== index) return row;
+        const updated = { ...row, [field]: value };
+        return validateBankRow(updated);
+      });
+      setImportStats(summarizeImport(next));
       return next;
     });
-    setImportStats((prev) => summarizeImport(importPreview.map((r, i) =>
-      i === index ? validateBankRow({ ...r, [field]: value }) : r
-    )));
   };
+
 
   const toggleRowSelection = (index) => {
     setImportPreview((prev) => {
@@ -642,48 +683,51 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
       </div>
 
       {/* INLINE PREVIEW MODAL */}
+      {/* IMPORT PREVIEW MODAL (full-screen, sticky header/footer) */}
       {showImportPreview && (
-        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center px-4">
-          <div className="bg-white dark:bg-slate-900 rounded-xl shadow-2xl max-w-5xl w-full max-h-[80vh] flex flex-col border border-slate-200 dark:border-slate-700">
-            <div className="text-slate-200 dark:text-slate-800">
-              <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Upload size={18} className="text-[#3194A0]" />
-                  <h3 className="font-semibold text-lg">
-                    Import Bank Accounts – Preview
-                  </h3>
-                </div>
-                <button
-                  onClick={() => setShowImportPreview(false)}
-                  className="text-sm text-slate-500 hover:text-slate-800 dark:hover:text-slate-100"
-                >
-                  Close
-                </button>
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/70 backdrop-blur-sm px-2 sm:px-4">
+          <div
+            className="
+              bg-white dark:bg-slate-900 rounded-xl shadow-2xl
+              w-full max-w-6xl max-h-[90vh]
+              flex flex-col border border-slate-200 dark:border-slate-700
+              transform transition-all duration-150 ease-out scale-100 opacity-100
+            "
+          >
+            {/* HEADER (sticky) */}
+            <div className="px-6 py-4 border-b border-slate-200 dark:border-slate-700 bg-slate-50/90 dark:bg-slate-900/90 sticky top-0 z-10 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Upload size={18} className="text-[#3194A0]" />
+                <h3 className="font-semibold text-lg text-slate-900 dark:text-slate-100">
+                  Import Bank Accounts – Preview
+                </h3>
               </div>
+              <button
+                onClick={() => setShowImportPreview(false)}
+                className="text-sm text-slate-500 hover:text-slate-900 dark:text-slate-300 dark:hover:text-white"
+              >
+                Close
+              </button>
             </div>
 
-            {/* Summary */}
+            {/* SUMMARY BAR */}
             {importStats && (
-              <div className="px-6 py-3 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800 flex items-center gap-4 text-xs">
-                <div className="flex items-center gap-1">
-                  <Info size={14} className="text-slate-500" />
+              <div className="px-6 py-2 border-b border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900 flex flex-wrap items-center gap-4 text-xs">
+                <div className="flex items-center gap-1 text-slate-600 dark:text-slate-300">
+                  <Info size={14} />
                   <span>
                     Total rows:{' '}
-                    <span className="font-semibold">
-                      {importStats.total}
-                    </span>
+                    <span className="font-semibold">{importStats.total}</span>
                   </span>
                 </div>
-                <div className="flex items-center gap-1 text-emerald-600">
+                <div className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400">
                   <CheckCircle size={14} />
                   <span>
                     Valid:{' '}
-                    <span className="font-semibold">
-                      {importStats.valid}
-                    </span>
+                    <span className="font-semibold">{importStats.valid}</span>
                   </span>
                 </div>
-                <div className="flex items-center gap-1 text-amber-600">
+                <div className="flex items-center gap-1 text-amber-600 dark:text-amber-400">
                   <AlertTriangle size={14} />
                   <span>
                     Warnings:{' '}
@@ -692,7 +736,7 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
                     </span>
                   </span>
                 </div>
-                <div className="flex items-center gap-1 text-red-600">
+                <div className="flex items-center gap-1 text-red-600 dark:text-red-400">
                   <AlertTriangle size={14} />
                   <span>
                     Errors:{' '}
@@ -704,188 +748,215 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
               </div>
             )}
 
-            {/* Table */}
+            {/* TABLE BODY */}
             <div className="flex-1 overflow-auto">
               <table className="w-full text-xs">
-                <thead className="bg-slate-50 dark:bg-slate-800 text-slate-600 dark:text-slate-300">
+                <thead className="sticky top-0 z-10 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 shadow-sm">
                   <tr>
-                    <th className="px-3 py-2 text-left">
+                    <th className="px-3 py-2 text-left w-10">
                       <span className="sr-only">Select</span>
                     </th>
-                    <th className="px-3 py-2 text-left">Row</th>
-                    <th className="px-3 py-2 text-left">Currency</th>
-                    <th className="px-3 py-2 text-left">Bank</th>
-                    <th className="px-3 py-2 text-left">Account No</th>
-                    <th className="px-3 py-2 text-left">IFSC</th>
-                    <th className="px-3 py-2 text-left">SWIFT</th>
-                    <th className="px-3 py-2 text-left">Branch</th>
-                    <th className="px-3 py-2 text-left">Status</th>
+                    <th className="px-3 py-2 text-left w-14">Row</th>
+                    <th className="px-3 py-2 text-left w-24">Currency</th>
+                    <th className="px-3 py-2 text-left w-40">Bank</th>
+                    <th className="px-3 py-2 text-left w-40">Account No</th>
+                    <th className="px-3 py-2 text-left w-40">IFSC</th>
+                    <th className="px-3 py-2 text-left w-40">SWIFT</th>
+                    <th className="px-3 py-2 text-left w-48">Branch</th>
+                    <th className="px-3 py-2 text-left w-32">Status</th>
                   </tr>
                 </thead>
                 <tbody>
                   {importPreview.map((row, index) => {
-                    const rowBg = row.hasError
-                      ? 'bg-red-50 dark:bg-red-900/30'
+                    const rowColor = row.hasError
+                      ? 'border-l-4 border-l-red-500'
                       : row.hasWarning
-                      ? 'bg-amber-50 dark:bg-amber-900/20'
+                      ? 'border-l-4 border-l-amber-400'
+                      : 'border-l-4 border-l-emerald-500';
+
+                    const bgColor = row.hasError
+                      ? 'bg-red-50/60 dark:bg-red-900/20'
+                      : row.hasWarning
+                      ? 'bg-amber-50/60 dark:bg-amber-900/10'
                       : 'bg-white dark:bg-slate-900';
 
                     return (
                       <tr
                         key={index}
-                        className={`${rowBg} border-b border-slate-100 dark:border-slate-800`}
+                        className={`${rowColor} ${bgColor} border-b border-slate-100 dark:border-slate-800 hover:bg-slate-50/80 dark:hover:bg-slate-800/70 transition-colors`}
                       >
+                        {/* Select */}
                         <td className="px-3 py-2 align-top">
                           <input
                             type="checkbox"
+                            className="h-3 w-3 accent-[#3194A0]"
                             checked={row.selected}
                             disabled={row.hasError}
-                            onChange={() => toggleRowSelection(index)}
+                            onChange={() => {
+                              setImportPreview(prev => {
+                                const next = prev.map((r, i) =>
+                                  i === index
+                                    ? { ...r, selected: !r.selected }
+                                    : r
+                                );
+                                setImportStats(summarizeImport(next));
+                                return next;
+                              });
+                            }}
                           />
                         </td>
-                        <td className="px-3 py-2 align-top text-slate-500">
+
+                        {/* Row number */}
+                        <td className="px-3 py-2 align-top text-slate-500 dark:text-slate-400">
                           #{row._rowIndex}
                         </td>
+
+                        {/* Currency */}
                         <td className="px-3 py-2 align-top">
-                          <input
-                            className={`w-full px-2 py-1 rounded border ${
-                              row.fieldErrors.currency === 'warning'
-                                ? 'border-amber-400 bg-amber-50'
-                                : 'border-slate-200'
-                            }`}
+                          <PreviewCellInput
                             value={row.currency}
-                            onChange={(e) =>
+                            onChange={e =>
                               updatePreviewRowField(
                                 index,
                                 'currency',
                                 e.target.value
                               )
                             }
+                            warning={
+                              row.fieldErrors.currency === 'warning'
+                                ? 'Missing – will default to INR'
+                                : undefined
+                            }
                           />
                         </td>
+
+                        {/* Bank Name */}
                         <td className="px-3 py-2 align-top">
-                          <input
-                            className={`w-full px-2 py-1 rounded border ${
-                              row.fieldErrors.bankName === 'required'
-                                ? 'border-red-400 bg-red-50'
-                                : 'border-slate-200'
-                            }`}
+                          <PreviewCellInput
                             value={row.bankName}
-                            onChange={(e) =>
+                            onChange={e =>
                               updatePreviewRowField(
                                 index,
                                 'bankName',
                                 e.target.value
                               )
                             }
-                          />
-                        </td>
-                        <td className="px-3 py-2 align-top">
-                          <input
-                            className={`w-full px-2 py-1 rounded border ${
-                              row.fieldErrors.accountNo === 'required'
-                                ? 'border-red-400 bg-red-50'
-                                : 'border-slate-200'
-                            }`}
-                            value={row.accountNo}
-                            onChange={(e) =>
-                              updatePreviewRowField(
-                                index,
-                                'accountNo',
-                                e.target.value
-                              )
+                            error={
+                              row.fieldErrors.bankName === 'required'
+                                ? 'Bank name is required'
+                                : undefined
                             }
                           />
                         </td>
+
+                        {/* Account No */}
+                        <td className="px-3 py-2 align-top">
+                          <PreviewCellInput
+                            value={row.accountNo}
+                            onChange={e =>
+                              updatePreviewRowField(
+                                index,
+                                'accountNo',
+                                e.target.value.replace(/\s+/g, '')
+                              )
+                            }
+                            error={
+                              row.fieldErrors.accountNo === 'required'
+                                ? 'Account number is required'
+                                : undefined
+                            }
+                          />
+                        </td>
+
+                        {/* IFSC + Suggest */}
                         <td className="px-3 py-2 align-top">
                           <div className="flex gap-1">
-                            <input
-                              className={`w-full px-2 py-1 rounded border ${
-                                row.fieldErrors.ifsc === 'required' ||
-                                row.fieldErrors.ifsc === 'invalid'
-                                  ? 'border-red-400 bg-red-50'
-                                  : 'border-slate-200'
-                              }`}
+                            <PreviewCellInput
                               value={row.ifsc}
-                              onChange={(e) =>
+                              onChange={e =>
                                 updatePreviewRowField(
                                   index,
                                   'ifsc',
                                   e.target.value.toUpperCase()
                                 )
                               }
+                              error={
+                                row.fieldErrors.ifsc === 'required'
+                                  ? 'IFSC is required for INR accounts'
+                                  : row.fieldErrors.ifsc === 'invalid'
+                                  ? 'Invalid IFSC format'
+                                  : undefined
+                              }
                             />
-                            {inferFormat(row) === 'indian' &&
-                              !row.ifsc && (
-                                <button
-                                  type="button"
-                                  onClick={() =>
-                                    applyIfscSuggestionToRow(index)
-                                  }
-                                  className="text-[10px] px-2 py-1 rounded border border-slate-300 text-slate-600 hover:bg-slate-100"
-                                >
-                                  Suggest
-                                </button>
-                              )}
+                            {inferFormat(row) === 'indian' && !row.ifsc && (
+                              <button
+                                type="button"
+                                onClick={() => applyIfscSuggestionToRow(index)}
+                                className="text-[10px] px-2 py-1 rounded border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
+                              >
+                                Suggest
+                              </button>
+                            )}
                           </div>
                         </td>
+
+                        {/* SWIFT */}
                         <td className="px-3 py-2 align-top">
-                          <input
-                            className={`w-full px-2 py-1 rounded border ${
-                              row.fieldErrors.swift === 'invalid'
-                                ? 'border-red-400 bg-red-50'
-                                : row.fieldErrors.swift === 'warning'
-                                ? 'border-amber-400 bg-amber-50'
-                                : 'border-slate-200'
-                            }`}
+                          <PreviewCellInput
                             value={row.swift}
-                            onChange={(e) =>
+                            onChange={e =>
                               updatePreviewRowField(
                                 index,
                                 'swift',
                                 e.target.value.toUpperCase()
                               )
                             }
+                            error={
+                              row.fieldErrors.swift === 'invalid'
+                                ? 'Invalid SWIFT format'
+                                : undefined
+                            }
+                            warning={
+                              row.fieldErrors.swift === 'warning'
+                                ? 'Recommended for international accounts'
+                                : undefined
+                            }
                           />
                         </td>
+
+                        {/* Branch */}
                         <td className="px-3 py-2 align-top">
-                          <input
-                            className={`w-full px-2 py-1 rounded border ${
-                              row.fieldErrors.branch === 'warning'
-                                ? 'border-amber-400 bg-amber-50'
-                                : 'border-slate-200'
-                            }`}
+                          <PreviewCellInput
                             value={row.branch}
-                            onChange={(e) =>
+                            onChange={e =>
                               updatePreviewRowField(
                                 index,
                                 'branch',
                                 e.target.value
                               )
                             }
+                            warning={
+                              row.fieldErrors.branch === 'warning'
+                                ? 'Branch/location recommended'
+                                : undefined
+                            }
                           />
                         </td>
+
+                        {/* Status */}
                         <td className="px-3 py-2 align-top">
                           {row.hasError ? (
-                            <div className="text-red-600 flex flex-col gap-0.5">
-                              {row.errors.map((err, i) => (
-                                <div key={i} className="flex gap-1">
-                                  <AlertTriangle size={10} />
-                                  <span>{err}</span>
-                                </div>
-                              ))}
+                            <div className="text-red-600 dark:text-red-400 flex items-center gap-1">
+                              <AlertTriangle size={12} />
+                              <span>Error</span>
                             </div>
                           ) : row.hasWarning ? (
-                            <div className="text-amber-600 flex flex-col gap-0.5">
-                              {row.warnings.map((w, i) => (
-                                <div key={i} className="flex gap-1">
-                                  <Info size={10} />
-                                  <span>{w}</span>
-                                </div>
-                              ))}
+                            <div className="text-amber-600 dark:text-amber-400 flex items-center gap-1">
+                              <AlertTriangle size={12} />
+                              <span>Warning</span>
                             </div>
                           ) : (
-                            <div className="text-emerald-600 flex items-center gap-1">
+                            <div className="text-emerald-600 dark:text-emerald-400 flex items-center gap-1">
                               <CheckCircle size={12} />
                               <span>OK</span>
                             </div>
@@ -898,7 +969,7 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
                     <tr>
                       <td
                         colSpan={9}
-                        className="text-center py-6 text-slate-500"
+                        className="text-center py-6 text-slate-500 dark:text-slate-400"
                       >
                         No rows to preview.
                       </td>
@@ -908,25 +979,36 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
               </table>
             </div>
 
-            {/* Footer Actions */}
-            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-700 flex items-center justify-between bg-slate-50 dark:bg-slate-900">
-              <div className="flex gap-2 text-xs text-slate-500">
+            {/* FOOTER (sticky) */}
+            <div className="px-6 py-3 border-t border-slate-200 dark:border-slate-700 bg-slate-50/95 dark:bg-slate-900/95 sticky bottom-0 flex flex-wrap items-center justify-between gap-3">
+              {/* Legend (left) */}
+              <div className="flex flex-wrap items-center gap-3 text-[11px] text-slate-600 dark:text-slate-300">
                 <span>✅ Edit cells inline before importing</span>
                 <span>•</span>
-                <span>🔴 Red = must fix, 🟡 Yellow = recommended</span>
+                <span>
+                  <span className="text-red-500 font-semibold">Red</span> = must
+                  fix
+                </span>
+                <span>•</span>
+                <span>
+                  <span className="text-amber-500 font-semibold">Yellow</span> =
+                  recommended
+                </span>
               </div>
-              <div className="flex gap-2">
+
+              {/* Actions (right) */}
+              <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={fixAllWithSuggestions}
-                  className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100"
+                  className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
                 >
                   Fix with Suggestions
                 </button>
                 <button
                   type="button"
                   onClick={() => setShowImportPreview(false)}
-                  className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 text-slate-700 hover:bg-slate-100"
+                  className="px-3 py-1.5 text-xs rounded-lg border border-slate-300 dark:border-slate-600 text-slate-700 dark:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-700"
                 >
                   Cancel
                 </button>
@@ -942,6 +1024,7 @@ const SettingsPage = ({ settings, onSave, addToast }) => {
           </div>
         </div>
       )}
+
     </div>
   );
 };

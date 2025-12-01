@@ -1,0 +1,15 @@
+Invoice No,Date,Client Name,Client State,Currency,Exchange Rate,Item Desc,Item HSN,Item Qty,Item Price,Is LUT
+ET-25-0001,01-04-2025,Berge Bulk Maritime Pte. Ltd.,Other,SGD,64.7,LFI - Inadequate Communications,,1,12500,TRUE
+ET-25-0002,01-04-2025,Flex LNG Fleet Management,Other,USD,85.05,IRT Training - Section 01 ,,5,450,TRUE
+ET-25-0003,01-04-2025,Flex LNG Fleet Management,Other,USD,85.05,IRT Training - Section 02,,4,450,TRUE
+ET-25-0004,01-04-2025,Flex LNG Fleet Management,Other,USD,85.05,IRT Training - Section 03,,13,450,TRUE
+ET-25-0005,01-05-2025,Berge Bulk Maritime Pte. Ltd.,Other,SGD,66.18224,LFI - Berge Mauna Loa,,1,14500,TRUE
+ET-25-0006,29-04-2025,Flex LNG Fleet Management,Other,USD,85.2,DryDocking Safety Video - Section 01 - Introduction,,3,1000,TRUE
+ET-25-0007,29-04-2025,Flex LNG Fleet Management,Other,USD,85.2,DryDocking Safety Video - Section 02 - Before Arrival,,14,1000,TRUE
+ET-25-0008,01-05-2025,Flex LNG Fleet Management,Other,USD,85.4,DryDocking Safety Video - Section 03 - During Docking,,8,1000,TRUE
+ET-25-0009,01-05-2025,Flex LNG Fleet Management,Other,USD,85.4,DryDocking Safety Video - Section 04 - On the Blocks,,14,1000,TRUE
+ET-25-0010,01-05-2025,Flex LNG Fleet Management,Other,USD,85.4,DryDocking Safety Video - Section 05 - Before Departure,,5,1000,TRUE
+ET-25-0011,01-05-2025,Flex LNG Fleet Management,Other,USD,85.4,DryDocking Safety Video - Section 06 - After Departure,,8,1000,TRUE
+ET-25-0012,06-09-2025,The United Kingdom Mutual Steam Ship Assurance Association Ltd.,Other,USD,87.9628,Lessons Learnt: Enclosed Space Asphyxiation (7 Mins),,7,650,TRUE
+ET-25-0012,06-09-2025,The United Kingdom Mutual Steam Ship Assurance Association Ltd.,Other,USD,,Additional Man Hours,,122,30,TRUE
+ET-25-0013,06-11-2025,The United Kingdom Mutual Steam Ship Assurance Association Ltd.,Other,USD,,Enclosed Space Asphyxiation - Additional Man Hours,,78,30,TRUE
