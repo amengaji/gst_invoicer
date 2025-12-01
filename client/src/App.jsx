@@ -1,7 +1,8 @@
+// client/src/App.jsx
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, FileText, Receipt, PieChart, Settings, Menu, Moon, Sun, Search, Users, 
-  CheckCircle, Printer, Edit, Trash2, Download, Plus, FileSpreadsheet, ChevronUp, ChevronDown, LogOut 
+  CheckCircle, Printer, Edit, Trash2, Download, Plus, FileSpreadsheet, ChevronUp, ChevronDown, LogOut, RefreshCw 
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 import { ToastContainer } from './components/ui/Toast';
@@ -11,9 +12,10 @@ import Card from './components/ui/Card';
 import Button from './components/ui/Button';
 import Select from './components/ui/Select'; 
 import Pagination from './components/ui/Pagination';
-import { formatDate } from './lib/utils'; // Utility function for date formatting
+import { formatDate } from './lib/utils'; 
+import { formatNumber } from './lib/formatNumber';
 
-// ... imports ...
+// Auth
 import Login from './components/auth/Login';
 
 // Features
@@ -25,6 +27,9 @@ import CreateInvoice from './components/features/CreateInvoice';
 import SettingsPage from './components/features/SettingsPage';
 import InvoiceViewModal from './components/features/InvoiceViewModal';
 import { generateInvoicePDF } from './lib/pdf-generator';
+
+// Define API URL
+const API_URL = 'http://localhost:5000';
 
 // === SUPER ENHANCED RESIZABLE COLUMN HEADER ===
 function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align }) {
@@ -119,14 +124,11 @@ function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align }) {
   );
 }
 
-
-
-
 export default function App() {
   const [activeTab, setActiveTab] = useState(() => {
     return localStorage.getItem('activeTab') || 'dashboard';
   });
-  //const [darkMode, setDarkMode] = useState(false);
+  
   const [isSidebarOpen, setSidebarOpen] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   
@@ -137,10 +139,9 @@ export default function App() {
       localStorage.removeItem('token');
       setToken(null);
       window.location.reload();
-
   };
 
-// --- API HELPER (Fixed: Throws errors so App knows if it failed) ---
+  // --- API HELPER ---
   const apiFetch = async (url, options = {}) => {
       const headers = {
           ...options.headers,
@@ -158,7 +159,7 @@ export default function App() {
       return response;
   };
 
-  // --- Render ---
+  // --- Render Login if needed ---
   if (!token) {
       return <Login onLogin={(t) => { 
         localStorage.setItem('token', t); setToken(t); 
@@ -167,8 +168,7 @@ export default function App() {
       }} />;
   }
   
-  // --- 1. FIXED: Dark Mode Persistence ---
-  // Initialize by reading from LocalStorage. If nothing there, default to false.
+  // --- Dark Mode Persistence ---
   const [darkMode, setDarkMode] = useState(() => {
       const savedMode = localStorage.getItem('darkMode');
       return savedMode === 'true';
@@ -191,19 +191,23 @@ export default function App() {
   const [expenses, setExpenses] = useState([]);
   const [clients, setClients] = useState([]);
   
+  // --- Live Rates State ---
+  const [exchangeRates, setExchangeRates] = useState(null);
+
   // --- View Modal State ---
   const [viewingInvoice, setViewingInvoice] = useState(null);
   
   const [userSettings, setUserSettings] = useState({
      companyName: 'Elementree',
      email: 'accounts@elementree.co.in',
-     gstin: '27AAAAA0000A1Z5',
-     address: '7, Sunbeam, Deonar Baug, Deonar Village Road, Mumbai - 400088',
+     gstin: '',
+     address: '',
      state: 'Maharashtra',
-     invoicePrefix: 'ET/INV/MUM/25',
+     invoicePrefix: 'ET/INV/',
      currency: 'USD',
      filingFrequency: 'Quaterly',
-     bank_accounts: []
+     bank_accounts: [],
+     number_format: 'en-IN'
   });
 
   // --- Pagination ---
@@ -228,20 +232,25 @@ export default function App() {
       return `FY ${year}-${String(year + 1).slice(-2)}`;
   };
 
-// --- API: Load Data ---
+  // --- API: Load Data ---
   const loadData = async () => {
     if (!token) return; 
     try {
+        // Fetch App Data
         const [invRes, expRes, cliRes, setRes] = await Promise.all([
-            apiFetch('http://localhost:5000/api/invoices'),
-            apiFetch('http://localhost:5000/api/expenses'),
-            apiFetch('http://localhost:5000/api/clients'),
-            apiFetch('http://localhost:5000/api/settings')
+            apiFetch(`${API_URL}/api/invoices`),
+            apiFetch(`${API_URL}/api/expenses`),
+            apiFetch(`${API_URL}/api/clients`),
+            apiFetch(`${API_URL}/api/settings`)
         ]);
         
-        if (invRes.status === 401 || invRes.status === 403) {
-            handleLogout();
-            return;
+        // Fetch Live Rates (Silent fail if error)
+        try {
+          const rateRes = await fetch('https://open.er-api.com/v6/latest/USD');
+          const rateData = await rateRes.json();
+          setExchangeRates(rateData.rates);
+        } catch (e) {
+          console.warn("Could not fetch live rates");
         }
 
         const invData = await invRes.json();
@@ -253,12 +262,10 @@ export default function App() {
         const cliData = await cliRes.json();
         setClients(Array.isArray(cliData) ? cliData : []);
         
-        // FIX: Default to "All Time" so you see data immediately
         if (!selectedFY) setSelectedFY("All Time");
 
         const dbSettings = await setRes.json();
         
-        // FIX: Manually map Database keys (snake_case) to App keys (camelCase)
         if (dbSettings && dbSettings.id) {
             setUserSettings(prev => ({
                 ...prev,
@@ -273,14 +280,11 @@ export default function App() {
                 logo: dbSettings.logo || prev.logo,
                 lutNumber: dbSettings.lut_number || prev.lutNumber,
                 number_format: dbSettings.number_format || prev.number_format,
-                
-                // Parse bank accounts safely
                 bank_accounts: typeof dbSettings.bank_accounts === 'string' 
                     ? JSON.parse(dbSettings.bank_accounts) 
                     : (dbSettings.bank_accounts || [])
             }));
         } else {
-             // Keep defaults if no settings found
              setUserSettings(prev => ({ ...prev }));
         }
     } catch (e) {
@@ -291,9 +295,7 @@ export default function App() {
 
   useEffect(() => {
     loadData();
-    if (darkMode) document.documentElement.classList.add('dark');
-    else document.documentElement.classList.remove('dark');
-  }, [darkMode]);
+  }, []);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -307,15 +309,14 @@ export default function App() {
 
   const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
 
-const handleSaveInvoice = async (newInvoice) => {
+  const handleSaveInvoice = async (newInvoice) => {
     try {
         const safeInvoices = Array.isArray(invoices) ? invoices : [];
         const isUpdate = safeInvoices.some(inv => inv.id === newInvoice.id);
         
-        // FIX: Added encodeURIComponent() for Update URL
         const url = isUpdate 
-            ? `http://localhost:5000/api/invoices/${encodeURIComponent(newInvoice.id)}`
-            : 'http://localhost:5000/api/invoices';
+            ? `${API_URL}/api/invoices/${encodeURIComponent(newInvoice.id)}`
+            : `${API_URL}/api/invoices`;
         const method = isUpdate ? 'PUT' : 'POST';
 
         const res = await apiFetch(url, { method: method, body: JSON.stringify(newInvoice) });
@@ -343,10 +344,9 @@ const handleSaveInvoice = async (newInvoice) => {
     }
   };
 
-const updateInvoiceStatus = async (id, status, rate) => {
+  const updateInvoiceStatus = async (id, status, rate) => {
     try {
-        // FIX: Added encodeURIComponent()
-        await apiFetch(`http://localhost:5000/api/invoices/${encodeURIComponent(id)}/status`, { 
+        await apiFetch(`${API_URL}/api/invoices/${encodeURIComponent(id)}/status`, { 
             method: 'PUT', 
             body: JSON.stringify({ status, exchangeRate: rate }) 
         });
@@ -356,11 +356,10 @@ const updateInvoiceStatus = async (id, status, rate) => {
   };
 
 
-const handleDeleteInvoice = async () => {
+  const handleDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
     try {
-        // FIX: Added encodeURIComponent() to handle slashes in ID
-        await apiFetch(`http://localhost:5000/api/invoices/${encodeURIComponent(invoiceToDelete)}`, { method: 'DELETE' });
+        await apiFetch(`${API_URL}/api/invoices/${encodeURIComponent(invoiceToDelete)}`, { method: 'DELETE' });
         addToast("Invoice deleted", "success");
         setDeleteModalOpen(false);
         setInvoiceToDelete(null);
@@ -387,7 +386,7 @@ const handleDeleteInvoice = async () => {
               number_format: newSettings.number_format
           };
 
-          await apiFetch('http://localhost:5000/api/settings', {
+          await apiFetch(`${API_URL}/api/settings`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
@@ -469,284 +468,236 @@ const handleDeleteInvoice = async () => {
     URL.revokeObjectURL(url);
   };
 
-// --- Invoice Import Logic (Corrected) ---
-// --- Robust Invoice Import (Fixed Date Parsing, No Shifts) ---
-const handleInvoiceFileUpload = async (e) => {
-  const file = e.target.files[0];
-  if (!file) return;
+  const handleInvoiceFileUpload = async (e) => {
+    const file = e.target.files[0];
+    if (!file) return;
 
-  const allowOverwrite = window.confirm(
-    "If duplicate Invoice IDs are found, do you want to OVERWRITE them?\n\nClick OK to Overwrite.\nClick Cancel to Skip duplicates."
-  );
+    const allowOverwrite = window.confirm(
+      "If duplicate Invoice IDs are found, do you want to OVERWRITE them?\n\nClick OK to Overwrite.\nClick Cancel to Skip duplicates."
+    );
 
-  try {
-    addToast("Processing...", "info");
+    try {
+      addToast("Processing...", "info");
 
-    // ---------------------
-    // 1. Read Excel File
-    // ---------------------
-    const data = await file.arrayBuffer();
-    const workbook = XLSX.read(data, { type: "array" });
-    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+      // 1. Read Excel File
+      const data = await file.arrayBuffer();
+      const workbook = XLSX.read(data, { type: "array" });
+      const worksheet = workbook.Sheets[workbook.SheetNames[0]];
 
-    // RAW:false + cellDates:false => disables all Excel auto-date conversion
-    const jsonData = XLSX.utils.sheet_to_json(worksheet, {
-      raw: false,
-      cellDates: false,
-    });
-
-    // ---------------------
-    // SAFE VALUE GETTER
-    // ---------------------
-    const getVal = (row, key) => {
-      const val =
-        row[key] ??
-        row[key?.toLowerCase()] ??
-        row[key?.toUpperCase()] ??
-        row[key?.replace(/\s+/g, "")] ??
-        "";
-
-      return val !== undefined && val !== null ? String(val).trim() : "";
-    };
-
-    // ---------------------
-    // 2. PERFECT DATE PARSER
-    // ---------------------
-    const parseDate = (value) => {
-      if (!value) return null;
-
-      // If value is number OR a numeric string → Excel serial
-      if (!isNaN(value)) {
-        const serial = Number(value);
-
-        // Valid Excel serial dates fall in 40000–60000 (~1990–2040)
-        if (serial > 40000 && serial < 60000) {
-          const excelEpoch = new Date(1899, 11, 30);
-          const converted = new Date(excelEpoch.getTime() + serial * 86400000);
-          return converted.toISOString().substring(0, 10);
-        }
-      }
-
-      const str = String(value).trim();
-
-      // yyyy-mm-dd
-      if (/^\d{4}-\d{2}-\d{2}$/.test(str)) return str;
-
-      // dd-mm-yyyy or dd/mm/yyyy
-      const ddmmyyyy = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/);
-      if (ddmmyyyy) {
-        const [_, dd, mm, yyyy] = ddmmyyyy;
-        return `${yyyy}-${mm.padStart(2, "0")}-${dd.padStart(2, "0")}`;
-      }
-
-      // FINAL fallback — only accept reasonable years
-      const test = new Date(str);
-      if (!isNaN(test)) {
-        const year = test.getFullYear();
-        if (year >= 1990 && year <= 2050) {
-          return test.toISOString().substring(0, 10);
-        }
-      }
-
-      return null;
-    };
-
-
-
-    // ---------------------
-    // 3. CLIENT CACHE
-    // ---------------------
-    const clientCache = new Map();
-    if (Array.isArray(clients)) {
-      clients.forEach((c) => {
-        if (c.name) clientCache.set(c.name.toLowerCase(), c);
+      const jsonData = XLSX.utils.sheet_to_json(worksheet, {
+        raw: false,
+        cellDates: false,
       });
-    }
 
-    // ---------------------
-    // 4. AUTO-CREATE CLIENTS
-    // ---------------------
-    const uniqueNewClients = new Map();
+      // Safe Value Getter
+      const getVal = (row, key) => {
+        const val =
+          row[key] ??
+          row[key?.toLowerCase()] ??
+          row[key?.toUpperCase()] ??
+          row[key?.replace(/\s+/g, "")] ??
+          "";
 
-    for (const row of jsonData) {
-      const name = getVal(row, "Client Name");
-      const rawContact =
-        getVal(row, "Contact Name") ||
-        getVal(row, "Contact") ||
-        getVal(row, "Person");
-
-      if (name && !clientCache.has(name.toLowerCase())) {
-        if (!uniqueNewClients.has(name.toLowerCase())) {
-          const cNames = rawContact.split(";");
-          const cEmails = (getVal(row, "Email") || "").split(";");
-          const cPhones = (getVal(row, "Phone") || "").split(";");
-
-          const contacts = cNames
-            .map((cn, i) => ({
-              name: cn.trim(),
-              email: (cEmails[i] || "").trim(),
-              phone: (cPhones[i] || "").trim(),
-            }))
-            .filter((c) => c.name);
-
-          if (contacts.length === 0)
-            contacts.push({ name: "", email: "", phone: "" });
-
-          const newClient = {
-            id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-            name,
-            state: getVal(row, "Client State") || "Maharashtra",
-            address: "Imported Address",
-            city: "Imported City",
-            country: "India",
-            contacts,
-          };
-
-          uniqueNewClients.set(name.toLowerCase(), newClient);
-        }
-      }
-    }
-
-    // Save newly-created clients
-    for (const client of uniqueNewClients.values()) {
-      try {
-        await apiFetch("http://localhost:5000/api/clients", {
-          method: "POST",
-          body: JSON.stringify(client),
-        });
-        clientCache.set(client.name.toLowerCase(), client);
-      } catch (e) {
-        console.error("Client create error", e);
-      }
-    }
-
-    // ---------------------
-    // 5. GROUP INVOICES
-    // ---------------------
-    const invoicesMap = new Map();
-
-    for (const row of jsonData) {
-      const invNo = getVal(row, "Invoice No");
-      if (!invNo) continue;
-
-      const item = {
-        desc: getVal(row, "Item Desc"),
-        hsn: getVal(row, "Item HSN"),
-        qty: parseFloat(getVal(row, "Item Qty")) || 1,
-        price: parseFloat(getVal(row, "Item Price")) || 0,
+        return val !== undefined && val !== null ? String(val).trim() : "";
       };
 
-      if (invoicesMap.has(invNo)) {
-        invoicesMap.get(invNo).items.push(item);
-      } else {
-        const clientName = getVal(row, "Client Name");
-        const matchedClient =
-          clientCache.get(clientName.toLowerCase()) || {
-            name: "Unknown",
-            state: "Maharashtra",
-          };
-
-        const csvState = getVal(row, "Client State");
-        const finalState = csvState || matchedClient.state;
-
-        const rawRoe = getVal(row, "Exchange Rate");
-        const exchangeRate = parseFloat(rawRoe);
-        const isPaid = rawRoe !== "" && !isNaN(exchangeRate) && exchangeRate > 0;
-
-        invoicesMap.set(invNo, {
-          id: invNo,
-          invoiceNo: invNo,
-          client: matchedClient,
-          csvClientState: finalState,
-          date: getVal(row, "Date"),
-          currency: getVal(row, "Currency") || "INR",
-          exchangeRate: exchangeRate || 1,
-          isLut: String(getVal(row, "Is LUT")).toUpperCase() === "TRUE",
-          items: [item],
-          status: isPaid ? "Paid" : "Pending",
-          type: "Intrastate",
+      // 2. CLIENT CACHE
+      const clientCache = new Map();
+      if (Array.isArray(clients)) {
+        clients.forEach((c) => {
+          if (c.name) clientCache.set(c.name.toLowerCase(), c);
         });
       }
-    }
 
-    // ---------------------
-    // 6. SEND INVOICES
-    // ---------------------
-    let successCount = 0;
+      // 3. AUTO-CREATE CLIENTS
+      const uniqueNewClients = new Map();
 
-    for (const inv of invoicesMap.values()) {
-      const subtotal = inv.items.reduce(
-        (sum, item) => sum + item.qty * item.price,
-        0
-      );
+      for (const row of jsonData) {
+        const name = getVal(row, "Client Name");
+        const rawContact =
+          getVal(row, "Contact Name") ||
+          getVal(row, "Contact") ||
+          getVal(row, "Person");
 
-      const stateToCheck = inv.csvClientState || inv.client.state;
-      const isExport = stateToCheck === "Other";
-      const isInterstate = stateToCheck !== userSettings.state;
+        if (name && !clientCache.has(name.toLowerCase())) {
+          if (!uniqueNewClients.has(name.toLowerCase())) {
+            const cNames = rawContact.split(";");
+            const cEmails = (getVal(row, "Email") || "").split(";");
+            const cPhones = (getVal(row, "Phone") || "").split(";");
 
-      let tax = 0;
-      if (isExport) {
-        if (!inv.isLut) tax = subtotal * 0.18;
-      } else if (isInterstate) {
-        tax = subtotal * 0.18;
-      } else {
-        tax = subtotal * 0.18;
-      }
+            const contacts = cNames
+              .map((cn, i) => ({
+                name: cn.trim(),
+                email: (cEmails[i] || "").trim(),
+                phone: (cPhones[i] || "").trim(),
+              }))
+              .filter((c) => c.name);
 
-      const payload = {
-        id: inv.id,
-        client: inv.client,
-        date: inv.date,
-        amount: subtotal + tax,
-        tax,
-        status: inv.status,
-        type: isExport
-          ? inv.isLut
-            ? "Export (LUT)"
-            : "Export"
-          : isInterstate
-          ? "Interstate"
-          : "Intrastate",
-        currency: inv.currency,
-        exchangeRate: inv.exchangeRate,
-        items: inv.items,
-      };
+            if (contacts.length === 0)
+              contacts.push({ name: "", email: "", phone: "" });
 
-      try {
-        const res = await apiFetch("http://localhost:5000/api/invoices", {
-          method: "POST",
-          body: JSON.stringify(payload),
-        });
+            const newClient = {
+              id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+              name,
+              state: getVal(row, "Client State") || "Maharashtra",
+              address: "Imported Address",
+              city: "Imported City",
+              country: "India",
+              contacts,
+            };
 
-        if (res.status === 409 || res.status === 500) {
-          if (allowOverwrite) {
-            const updateRes = await apiFetch(
-              `http://localhost:5000/api/invoices/${inv.id}`,
-              {
-                method: "PUT",
-                body: JSON.stringify(payload),
-              }
-            );
-            if (updateRes.ok) successCount++;
+            uniqueNewClients.set(name.toLowerCase(), newClient);
           }
-        } else if (res.ok) {
-          successCount++;
         }
-      } catch (err) {
-        console.error(err);
       }
+
+      // Save newly-created clients
+      for (const client of uniqueNewClients.values()) {
+        try {
+          await apiFetch(`${API_URL}/api/clients`, {
+            method: "POST",
+            body: JSON.stringify(client),
+          });
+          clientCache.set(client.name.toLowerCase(), client);
+        } catch (e) {
+          console.error("Client create error", e);
+        }
+      }
+
+      // 4. GROUP INVOICES
+      const invoicesMap = new Map();
+
+      for (const row of jsonData) {
+        const invNo = getVal(row, "Invoice No");
+        if (!invNo) continue;
+
+        const item = {
+          desc: getVal(row, "Item Desc"),
+          hsn: getVal(row, "Item HSN"),
+          qty: parseFloat(getVal(row, "Item Qty")) || 1,
+          price: parseFloat(getVal(row, "Item Price")) || 0,
+        };
+
+        if (invoicesMap.has(invNo)) {
+          invoicesMap.get(invNo).items.push(item);
+        } else {
+          const clientName = getVal(row, "Client Name");
+          const matchedClient =
+            clientCache.get(clientName.toLowerCase()) || {
+              name: "Unknown",
+              state: "Maharashtra",
+            };
+
+          const csvState = getVal(row, "Client State");
+          const finalState = csvState || matchedClient.state;
+
+          const rawRoe = getVal(row, "Exchange Rate");
+          const exchangeRate = parseFloat(rawRoe);
+          const isPaid = rawRoe !== "" && !isNaN(exchangeRate) && exchangeRate > 0;
+
+          // DATE HANDLING (Priority: DD-MM-YYYY)
+          const rawDate = getVal(row, "Date");
+          let finalDate = rawDate;
+          
+          // Regex for DD-MM-YYYY or DD/MM/YYYY
+          const ddmmyyyy = String(rawDate).match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+          if (ddmmyyyy) {
+             const [_, d, m, y] = ddmmyyyy;
+             finalDate = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+          }
+
+          invoicesMap.set(invNo, {
+            id: invNo,
+            invoiceNo: invNo,
+            client: matchedClient,
+            csvClientState: finalState,
+            date: finalDate, // Send string directly
+            currency: getVal(row, "Currency") || "INR",
+            exchangeRate: exchangeRate || 1,
+            isLut: String(getVal(row, "Is LUT")).toUpperCase() === "TRUE",
+            items: [item],
+            status: isPaid ? "Paid" : "Pending",
+            type: "Intrastate",
+          });
+        }
+      }
+
+      // 5. SEND INVOICES
+      let successCount = 0;
+
+      for (const inv of invoicesMap.values()) {
+        const subtotal = inv.items.reduce(
+          (sum, item) => sum + item.qty * item.price,
+          0
+        );
+
+        const stateToCheck = inv.csvClientState || inv.client.state;
+        const isExport = stateToCheck === "Other";
+        const isInterstate = stateToCheck !== userSettings.state;
+
+        let tax = 0;
+        if (isExport) {
+          if (!inv.isLut) tax = subtotal * 0.18;
+        } else if (isInterstate) {
+          tax = subtotal * 0.18;
+        } else {
+          tax = subtotal * 0.18;
+        }
+
+        const payload = {
+          id: inv.id,
+          client: inv.client,
+          date: inv.date,
+          amount: subtotal + tax,
+          tax,
+          status: inv.status,
+          type: isExport
+            ? inv.isLut
+              ? "Export (LUT)"
+              : "Export"
+            : isInterstate
+            ? "Interstate"
+            : "Intrastate",
+          currency: inv.currency,
+          exchangeRate: inv.exchangeRate,
+          items: inv.items,
+        };
+
+        try {
+          const res = await apiFetch(`${API_URL}/api/invoices`, {
+            method: "POST",
+            body: JSON.stringify(payload),
+          });
+
+          if (res.status === 409 || res.status === 500) {
+            if (allowOverwrite) {
+              const updateRes = await apiFetch(
+                `${API_URL}/api/invoices/${encodeURIComponent(inv.id)}`,
+                {
+                  method: "PUT",
+                  body: JSON.stringify(payload),
+                }
+              );
+              if (updateRes.ok) successCount++;
+            }
+          } else if (res.ok) {
+            successCount++;
+          }
+        } catch (err) {
+          console.error(err);
+        }
+      }
+
+      addToast(`Imported ${successCount} invoices successfully!`, "success");
+      loadData();
+    } catch (err) {
+      console.error(err);
+      addToast("Error processing file.", "error");
     }
 
-    addToast(`Imported ${successCount} invoices successfully!`, "success");
-    loadData();
-  } catch (err) {
-    console.error(err);
-    addToast("Error processing file.", "error");
-  }
-
-  // Reset file input
-  e.target.value = null;
-};
+    // Reset file input
+    e.target.value = null;
+  };
 
 
   const navItems = [
@@ -771,6 +722,31 @@ const handleInvoiceFileUpload = async (e) => {
       </div>
     </th>
   );
+  
+  // --- Calculation for Stats ---
+  const calculateTotalPendingINR = () => {
+    return invoices.filter(i => i.status !== 'Paid').reduce((acc, inv) => {
+        const amount = parseFloat(inv.amount) || 0;
+        const curr = inv.currency || 'INR';
+
+        if (curr === 'INR') {
+            return acc + amount;
+        } 
+        
+        // If we have live rates, use them!
+        if (exchangeRates) {
+            const rateToUSD = exchangeRates[curr];
+            const rateINR = exchangeRates['INR'];
+            if (rateToUSD && rateINR) {
+                return acc + (amount / rateToUSD * rateINR);
+            }
+        }
+        
+        // Fallback to stored rate (which might be 1)
+        return acc + (amount * (parseFloat(inv.exchange_rate) || 1));
+    }, 0);
+  };
+
 
   return (
     <div className={`min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200 font-sans text-slate-900 dark:text-slate-100 flex overflow-hidden`}>
@@ -859,7 +835,8 @@ const handleInvoiceFileUpload = async (e) => {
         </header>
 
         <main className="flex-1 overflow-auto p-4 lg:p-8 relative">
-           {activeTab === 'dashboard' && <Dashboard invoices={invoices} expenses={expenses} onNewInvoice={() => { setEditingInvoice(null); setActiveTab('create_invoice'); }} onNewExpense={() => setActiveTab('expenses')} />}
+           {/* CRITICAL: Passing settings prop to Dashboard */}
+           {activeTab === 'dashboard' && <Dashboard invoices={invoices} expenses={expenses} onNewInvoice={() => { setEditingInvoice(null); setActiveTab('create_invoice'); }} onNewExpense={() => setActiveTab('expenses')} settings={userSettings} />}
            
            {activeTab === 'create_invoice' && (
              <CreateInvoice 
@@ -889,30 +866,56 @@ const handleInvoiceFileUpload = async (e) => {
                           <h3 className="text-xl font-bold text-slate-800 dark:text-white">{invoices.length}</h3>
                       </div>
                   </Card>
+                  
+                  {/* TOTAL VALUE (BOOKED) */}
+                  {/* TOTAL VALUE (PROJECTED) */}
                   <Card className="p-4 flex items-center gap-4 border-l-4 border-l-indigo-500">
                       <div className="p-3 bg-indigo-50 rounded-full text-indigo-600"><Receipt size={24} /></div>
                       <div>
-                          <p className="text-xs text-slate-500 uppercase font-bold">Total Value (INR)</p>
+                          <p className="text-xs text-slate-500 uppercase font-bold">Total Value (Projected)</p>
                           <h3 className="text-xl font-bold text-slate-800 dark:text-white">
-                            ₹{invoices.reduce((acc, inv) => acc + (parseFloat(inv.amount) * (parseFloat(inv.exchange_rate) || 1)), 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                          {/* NEW LOGIC: Paid Actuals + Pending Live Rates */}
+                          ₹{formatNumber(
+                                  // 1. Calculate Paid Total (Actuals)
+                                  invoices.filter(i => i.status === 'Paid')
+                                      .reduce((acc, inv) => acc + (parseFloat(inv.amount) * (parseFloat(inv.exchange_rate) || 1)), 0) 
+                                  + 
+                                  // 2. Add Pending Total (Using Live Rates function we created)
+                                  calculateTotalPendingINR(),
+                                  
+                                  userSettings.number_format
+                              )}
                           </h3>
                       </div>
                   </Card>
+                  
+                  {/* RECEIVED (REALIZED) */}
                   <Card className="p-4 flex items-center gap-4 border-l-4 border-l-emerald-500">
                       <div className="p-3 bg-emerald-50 rounded-full text-emerald-600"><CheckCircle size={24} /></div>
                       <div>
                           <p className="text-xs text-slate-500 uppercase font-bold">Received (INR)</p>
                           <h3 className="text-xl font-bold text-emerald-700 dark:text-emerald-400">
-                            ₹{invoices.filter(i => i.status === 'Paid').reduce((acc, inv) => acc + (parseFloat(inv.amount) * (parseFloat(inv.exchange_rate) || 1)), 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                            ₹{formatNumber(
+                                invoices.filter(i => i.status === 'Paid')
+                                    .reduce((acc, inv) => acc + (parseFloat(inv.amount) * (parseFloat(inv.exchange_rate) || 1)), 0),
+                                userSettings.number_format
+                            )}
                           </h3>
                       </div>
                   </Card>
+                  
+                  {/* PENDING (LIVE RATES) */}
                   <Card className="p-4 flex items-center gap-4 border-l-4 border-l-orange-500">
                       <div className="p-3 bg-orange-50 rounded-full text-orange-600"><PieChart size={24} /></div>
                       <div>
-                          <p className="text-xs text-slate-500 uppercase font-bold">Pending (INR)</p>
+                          <div className="flex items-center gap-2">
+                            <p className="text-xs text-slate-500 uppercase font-bold">Pending (INR)</p>
+                            {!exchangeRates && <RefreshCw size={10} className="animate-spin text-slate-400"/>}
+                          </div>
+                          
                           <h3 className="text-xl font-bold text-orange-700 dark:text-orange-400">
-                            ₹{invoices.filter(i => i.status !== 'Paid').reduce((acc, inv) => acc + (parseFloat(inv.amount) * (parseFloat(inv.exchange_rate) || 1)), 0).toLocaleString(undefined, {maximumFractionDigits: 0})}
+                            {/* Uses Live Rates Calculation */}
+                            ₹{formatNumber(calculateTotalPendingINR(), userSettings.number_format)}                            
                           </h3>
                       </div>
                   </Card>
@@ -969,9 +972,9 @@ const handleInvoiceFileUpload = async (e) => {
                              <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">{inv.client?.name || 'Unknown'}</td>
                              <td className="px-6 py-4 text-slate-500 max-w-[200px] truncate" title={desc}>{desc}</td>
                              <td className="px-6 py-4 whitespace-nowrap">{formatDate(inv.date)}</td>
-                             <td className="px-6 py-4 font-medium text-right whitespace-nowrap">{inv.currency} {amount.toLocaleString()}</td>
+                             <td className="px-6 py-4 font-medium text-right whitespace-nowrap">{inv.currency} {formatNumber(amount, userSettings.number_format)}</td>
                              <td className="px-6 py-4 text-right text-slate-500">{roe.toFixed(2)}</td>
-                             <td className="px-6 py-4 text-right font-bold text-slate-700 dark:text-slate-200">₹ {inrAmount.toLocaleString(undefined, {maximumFractionDigits: 0})}</td>
+                             <td className="px-6 py-4 text-right font-bold text-slate-700 dark:text-slate-200">₹ {formatNumber(inrAmount, userSettings.number_format)}</td>
                              <td className="px-6 py-4"><Badge type={inv.status === 'Paid' ? 'success' : 'warning'}>{inv.status}</Badge></td>
                              <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">{inv.status === 'Paid' ? formatDate(inv.date) : '-'}</td>
                              <td className="px-6 py-4 flex justify-center gap-2">
@@ -984,16 +987,16 @@ const handleInvoiceFileUpload = async (e) => {
                          );
                        })}
                        {processedInvoices.length === 0 && (
-                          <tr><td colSpan="10" className="text-center py-10 text-slate-500">No invoices found matching "{searchQuery}" in {selectedFY}</td></tr>
+                         <tr><td colSpan="10" className="text-center py-10 text-slate-500">No invoices found matching "{searchQuery}" in {selectedFY}</td></tr>
                        )}
                      </tbody>
                    </table>
                  </div>
                  <Pagination 
-                    currentPage={currentPage}
-                    totalItems={processedInvoices.length}
-                    pageSize={ITEMS_PER_PAGE}
-                    onPageChange={setCurrentPage}
+                   currentPage={currentPage}
+                   totalItems={processedInvoices.length}
+                   pageSize={ITEMS_PER_PAGE}
+                   onPageChange={setCurrentPage}
                  />
                </Card>
              </div>

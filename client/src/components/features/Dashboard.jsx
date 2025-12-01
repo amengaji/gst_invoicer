@@ -1,9 +1,12 @@
+// client/src/components/features/Dashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { IndianRupee, Briefcase, FileText, PieChart, Plus, Clock, RefreshCw } from 'lucide-react';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
+import { formatNumber } from "../../lib/formatNumber";
 
-const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense }) => {
+// 1. ADD 'settings' TO PROPS
+const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense, settings }) => {
   const [exchangeRates, setExchangeRates] = useState(null);
   const [loadingRates, setLoadingRates] = useState(false);
 
@@ -121,7 +124,10 @@ const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense }) => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Revenue (Paid)</p>
-              <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">₹{totalRevenueINR.toLocaleString(undefined, {maximumFractionDigits: 0})}</h3>
+              {/* Note: If you want these to follow settings too, update them similarly */}
+              <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">
+                 ₹{formatNumber(totalRevenueINR, settings?.number_format)}
+              </h3>
               <p className="text-xs text-emerald-600 mt-1">Realized in INR</p>
             </div>
             <div className="h-10 w-10 rounded-full bg-emerald-100 dark:bg-emerald-900/30 flex items-center justify-center text-emerald-600">
@@ -145,7 +151,7 @@ const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense }) => {
                       Object.entries(pendingByCurrency).map(([curr, amount]) => (
                         <div key={curr} className="flex justify-between items-baseline">
                             <span className="text-lg font-bold text-orange-600 dark:text-orange-400">
-                                {getSymbol(curr)}{amount.toLocaleString(undefined, {maximumFractionDigits: 0})}
+                                {getSymbol(curr)}{formatNumber(amount, settings?.number_format)}
                             </span>
                             <span className="text-xs text-slate-400 font-mono">{curr}</span>
                         </div>
@@ -161,7 +167,7 @@ const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense }) => {
                       <p className="text-xs text-slate-500 flex justify-between">
                           <span>Approx Total:</span>
                           <span className="font-bold text-slate-700 dark:text-slate-300">
-                              ₹{pendingTotalApproxINR.toLocaleString(undefined, {maximumFractionDigits: 0})}
+                              ₹{formatNumber(pendingTotalApproxINR, settings?.number_format)}
                           </span>
                       </p>
                   </div>
@@ -175,7 +181,9 @@ const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense }) => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Total Expenses</p>
-              <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">₹{totalExpenses.toLocaleString(undefined, {maximumFractionDigits: 0})}</h3>
+              <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">
+                ₹{formatNumber(totalExpenses, settings?.number_format)}
+              </h3>
             </div>
             <div className="h-10 w-10 rounded-full bg-red-100 dark:bg-red-900/30 flex items-center justify-center text-red-600">
               <Briefcase size={20} />
@@ -188,13 +196,15 @@ const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense }) => {
           <div className="flex items-center justify-between">
             <div>
               <p className="text-sm font-medium text-slate-500 dark:text-slate-400">Net GST Payable</p>
-              <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">₹{(gstCollected - gstPaid).toLocaleString(undefined, {maximumFractionDigits: 0})}</h3>
+              <h3 className="text-2xl font-bold mt-1 text-slate-900 dark:text-white">
+                ₹{formatNumber((gstCollected - gstPaid), settings?.number_format)}
+              </h3>
             </div>
             <div className="h-10 w-10 rounded-full bg-blue-100 dark:bg-blue-900/30 flex items-center justify-center text-blue-600">
               <PieChart size={20} />
             </div>
           </div>
-          <p className="text-xs text-slate-400 mt-2">Collected: ₹{gstCollected.toLocaleString(undefined, {maximumFractionDigits: 0})}</p>
+          <p className="text-xs text-slate-400 mt-2">Collected: ₹{formatNumber(gstCollected, settings?.number_format)}</p>
         </Card>
       </div>
 
@@ -216,7 +226,8 @@ const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense }) => {
                 </div>
                 <div className="text-right">
                   <p className="text-sm font-bold dark:text-white">
-                    {getSymbol(inv.currency)} {parseFloat(inv.amount || 0).toLocaleString()}
+                    {/* 2. FIX FUNCTION CALL TO INCLUDE SETTINGS */}
+                    {getSymbol(inv.currency)} {formatNumber(parseFloat(inv.amount || 0), settings?.number_format)}
                   </p>
                   <Badge type={inv.status === 'Paid' ? 'success' : 'warning'}>{inv.status}</Badge>
                 </div>
@@ -228,6 +239,7 @@ const Dashboard = ({ invoices, expenses, onNewInvoice, onNewExpense }) => {
 
         {/* Quick Actions */}
         <Card className="p-6">
+          {/* ... existing code ... */}
           <h3 className="text-lg font-semibold mb-4 dark:text-white">Quick Actions</h3>
           <div className="grid grid-cols-2 gap-4">
               <button onClick={onNewInvoice} className="flex flex-col items-center justify-center p-4 rounded-xl border border-dashed border-slate-300 dark:border-slate-600 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors group">
