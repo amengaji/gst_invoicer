@@ -59,17 +59,27 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], invoices 
         
         setClient({ ...loadedClient, state: fixedState });
 
+        // Safely extract date formats
+        const extractDate = (val) => {
+             if (!val) return '';
+             return val.includes('T') ? val.split('T')[0] : val; 
+        };
+
+        const invoiceDate = extractDate(editingInvoice.date) || new Date().toISOString().split('T')[0];
+        const loadedDatePaid = extractDate(editingInvoice.date_paid || editingInvoice.datePaid);
+
+        // AUTO-FILL Date Paid if missing but status is 'Paid'
+        // This fixes the issue where the box appears empty ("dd-mm-yyyy")
+        const finalDatePaid = loadedDatePaid ? loadedDatePaid : (editingInvoice.status === 'Paid' ? invoiceDate : '');
+
         setSettings({
             invoiceNo: editingInvoice.id,
-            date: editingInvoice.date && editingInvoice.date.includes('T') 
-                  ? editingInvoice.date.split('T')[0] 
-                  : (editingInvoice.date || new Date().toISOString().split('T')[0]),
+            date: invoiceDate,
             currency: editingInvoice.currency,
             myState: userSettings.state, 
             isLut: editingInvoice.type?.includes('LUT') || false,
             exchangeRate: parseFloat(editingInvoice.exchange_rate) || 1,
-            // Load Date Paid
-            datePaid: editingInvoice.date_paid ? editingInvoice.date_paid.split('T')[0] : ''
+            datePaid: finalDatePaid
         });
     } else {
         // --- NEW MODE ---
@@ -197,8 +207,8 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], invoices 
              <Input label="Date" type="date" value={settings.date} onChange={(e) => setSettings({...settings, date: e.target.value})} />
              <Select label="Currency" value={settings.currency} onChange={(e) => setSettings({...settings, currency: e.target.value})} options={CURRENCIES} />
              
-                {/* Date Paid Input (Standard Style) */}
-             {editingInvoice && editingInvoice.status === 'Paid' && (
+             {/* Show if status is Paid OR if there is already a Date Paid value (even if status mismatch) */}
+             {editingInvoice && (editingInvoice.status === 'Paid' || settings.datePaid) && (
                  <Input 
                     label="Date Paid" 
                     type="date" 

@@ -1,3 +1,4 @@
+// server/controllers/invoiceController.js
 const db = require('../config/db');
 
 /* ---------------------------------------------------------
@@ -6,6 +7,12 @@ const db = require('../config/db');
 const normalizeDate = (rawDate) => {
   if (!rawDate) return null;
  
+  // 1. Handle ISO Format (YYYY-MM-DD) - Standard HTML5 Input
+  if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
+      return rawDate;
+  }
+
+  // 2. Handle DD-MM-YYYY or DD/MM/YYYY
   const parts = rawDate.split(/[\/\-]/); // supports / or -
  
   if (parts.length !== 3) return null;
@@ -35,60 +42,6 @@ const normalizeDate = (rawDate) => {
  
   return `${y}-${mm}-${dd}`; // ISO format
 };
-
-// function normalizeDate(input) {
-//     if (!input) return null;
-
-//     // 1. Handle JS Date Objects Directly
-//     if (input instanceof Date) {
-//         // Add 12 hours to neutralize timezone shifts (e.g. -5.5h or +5h)
-//         // This ensures the date lands on the correct UTC calendar day.
-//         const safeDate = new Date(input.getTime() + 12 * 60 * 60 * 1000); 
-//         return safeDate.toISOString().split('T')[0];
-//     }
-
-//     // 2. Sanitize String Input (Remove BOM, Quotes, Whitespace)
-//     const str = input.toString().replace(/^\uFEFF/, '').replace(/['"]/g, '').trim();
-
-//     // 3. Handle DD-MM-YYYY or DD/MM/YYYY (e.g., 01-04-2025)
-//     // This is the PRIORITY format for your CSV files.
-//     const ddmmyyyyRegex = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/;
-//     const match = str.match(ddmmyyyyRegex);
-
-//     if (match) {
-//         const day = match[1].padStart(2, '0');
-//         const month = match[2].padStart(2, '0');
-//         const year = match[3];
-//         // Return strict ISO string. No timezone math needed here.
-//         return `${year}-${month}-${day}`;
-//     }
-
-//     // 4. Handle YYYY-MM-DD (Already clean)
-//     if (/^\d{4}-\d{2}-\d{2}$/.test(str)) {
-//         return str;
-//     }
-
-//     // 5. Handle Excel Serial Numbers (e.g. 45643)
-//     if (/^\d{5}$/.test(str) || typeof input === 'number') {
-//         const excelEpoch = new Date(Date.UTC(1899, 11, 30));
-//         const days = parseInt(str);
-//         // Add days + 12 hours (Noon Safety)
-//         const dateObj = new Date(excelEpoch.getTime() + days * 86400000 + 43200000);
-//         return dateObj.toISOString().split('T')[0];
-//     }
-
-//     // 6. Fallback: Handle ISO Strings (e.g., "2025-03-31T18:30:00.000Z")
-//     // This catches the case where Frontend sent a shifted date.
-//     const d = new Date(str);
-//     if (!isNaN(d.getTime())) {
-//         // Add 12 hours to the timestamp to "unshift" any timezone offsets
-//         const safeDate = new Date(d.getTime() + 12 * 60 * 60 * 1000);
-//         return safeDate.toISOString().split('T')[0];
-//     }
-
-//     // If all fails, return raw string (Postgres might reject it, but better than silent fail)
-//     return str;
-// }
 
 /* ---------------------------------------------------------
    GET ALL INVOICES

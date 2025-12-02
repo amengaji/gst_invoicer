@@ -841,7 +841,7 @@ export default function App() {
            {activeTab === 'create_invoice' && (
              <CreateInvoice 
                onSave={handleSaveInvoice} 
-               onCancel={() => { setActiveTab('dashboard'); setEditingInvoice(null); }}
+               onCancel={() => { setActiveTab('invoices'); setEditingInvoice(null); }}
                userSettings={userSettings}
                clients={clients}
                editingInvoice={editingInvoice}
