@@ -43,7 +43,7 @@ const Expenses = ({ addToast }) => {
   // --- API: Fetch Expenses ---
   const fetchExpenses = async () => {
     try {
-      const res = await authFetch('http://localhost:5000/api/expenses');
+      const res = await authFetch('/api/expenses');
       if (res && res.ok) {
           const data = await res.json();
           setExpenses(Array.isArray(data) ? data : []);
@@ -111,7 +111,7 @@ const Expenses = ({ addToast }) => {
   const handleDelete = async (id) => {
       if(!window.confirm("Delete this expense?")) return;
       try {
-          const res = await authFetch(`http://localhost:5000/api/expenses/${id}`, { method: 'DELETE' });
+          const res = await authFetch(`/api/expenses/${id}`, { method: 'DELETE' });
           if(res && res.ok) {
               addToast("Expense deleted", "success");
               fetchExpenses();
@@ -149,8 +149,8 @@ const Expenses = ({ addToast }) => {
       };
 
       const url = editingId 
-        ? `http://localhost:5000/api/expenses/${editingId}`
-        : 'http://localhost:5000/api/expenses';
+        ? `/api/expenses/${editingId}`
+        : '/api/expenses';
       
       const method = editingId ? 'PUT' : 'POST';
 

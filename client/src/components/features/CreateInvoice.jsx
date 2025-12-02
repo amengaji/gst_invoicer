@@ -132,7 +132,7 @@ const CreateInvoice = ({ onSave, onCancel, userSettings, clients = [], invoices 
   const handleSaveClick = async () => {
       if (client.id && !client.id.startsWith('new')) {
           try {
-              await fetch(`http://localhost:5000/api/clients/${client.id}`, {
+              await fetch(`/api/clients/${client.id}`, {
                   method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(client)
               });
           } catch (e) { console.error("Failed to update client details", e); }

@@ -12,7 +12,7 @@ import { STATES, CURRENCIES } from '../../lib/constants';
 import * as XLSX from 'xlsx';
 
 // Define API URL
-const API_URL = 'http://localhost:5000';
+const API_URL = '';
 
 const KNOWN_IFSC_PREFIXES = {
   HDFC: 'HDFC',

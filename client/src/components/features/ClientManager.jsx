@@ -31,7 +31,7 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   // --- API: Fetch Clients ---
   const fetchClients = async () => {
     try {
-      const res = await fetch('http://localhost:5000/api/clients', {
+      const res = await fetch('/api/clients', {
           headers: getAuthHeaders() 
       });
       if (!res.ok) throw new Error("Failed to fetch");
@@ -61,8 +61,8 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
     
     try {
       const url = editingId 
-        ? `http://localhost:5000/api/clients/${editingId}`
-        : 'http://localhost:5000/api/clients';
+        ? `/api/clients/${editingId}`
+        : '/api/clients';
       
       const method = editingId ? 'PUT' : 'POST';
       const payload = { ...newClient, id: editingId || `C-${Date.now()}` };
@@ -89,7 +89,7 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   const handleDelete = async (id) => {
     if (!window.confirm("Delete this client?")) return;
     try {
-      await fetch(`http://localhost:5000/api/clients/${id}`, { 
+      await fetch(`/api/clients/${id}`, { 
           method: 'DELETE',
           headers: getAuthHeaders() // Secure Header
       });
@@ -190,7 +190,7 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
         };
 
         // FIX: Send Authorization Header
-        const res = await fetch('http://localhost:5000/api/clients', {
+        const res = await fetch('/api/clients', {
             method: 'POST',
             headers: getAuthHeaders(), 
             body: JSON.stringify(payload)
