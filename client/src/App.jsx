@@ -457,8 +457,9 @@ export default function App() {
 
   // --- Invoice Import ---
   const handleDownloadInvoiceTemplate = () => {
-    const headers = "Invoice No,Date,Client Name,Client State,Currency,Exchange Rate,Item Desc,Item HSN,Item Qty,Item Price,Is LUT\n";
-    const sampleRow1 = "INV-001,01-04-2025,Acme Corp,Maharashtra,INR,1,Web Dev Services,9983,1,50000,FALSE\n";
+    // UPDATED: Added "Date Paid" to header and sample
+    const headers = "Invoice No,Date,Date Paid,Client Name,Client State,Currency,Exchange Rate,Item Desc,Item HSN,Item Qty,Item Price,Is LUT\n";
+    const sampleRow1 = "INV-001,01-04-2025,05-04-2025,Acme Corp,Maharashtra,INR,1,Web Dev Services,9983,1,50000,FALSE\n";
     const blob = new Blob([headers + sampleRow1], { type: 'text/csv' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -499,6 +500,18 @@ export default function App() {
           "";
 
         return val !== undefined && val !== null ? String(val).trim() : "";
+      };
+
+      // Helper to parse DD-MM-YYYY or DD/MM/YYYY to YYYY-MM-DD
+      const parseDate = (raw) => {
+          if (!raw) return "";
+          const str = String(raw).trim();
+          const match = str.match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
+          if (match) {
+             const [_, d, m, y] = match;
+             return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
+          }
+          return str; // Return as is if no match (e.g. already ISO or excel serial handled elsewhere)
       };
 
       // 2. CLIENT CACHE
@@ -595,16 +608,12 @@ export default function App() {
           const exchangeRate = parseFloat(rawRoe);
           const isPaid = rawRoe !== "" && !isNaN(exchangeRate) && exchangeRate > 0;
 
-          // DATE HANDLING (Priority: DD-MM-YYYY)
-          const rawDate = getVal(row, "Date");
-          let finalDate = rawDate;
+          // DATE PARSING using helper
+          const finalDate = parseDate(getVal(row, "Date"));
           
-          // Regex for DD-MM-YYYY or DD/MM/YYYY
-          const ddmmyyyy = String(rawDate).match(/^(\d{1,2})[-/](\d{1,2})[-/](\d{4})/);
-          if (ddmmyyyy) {
-             const [_, d, m, y] = ddmmyyyy;
-             finalDate = `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
-          }
+          // DATE PAID PARSING (UPDATED)
+          const rawDatePaid = getVal(row, "Date Paid");
+          const finalDatePaid = parseDate(rawDatePaid);
 
           invoicesMap.set(invNo, {
             id: invNo,
@@ -612,6 +621,7 @@ export default function App() {
             client: matchedClient,
             csvClientState: finalState,
             date: finalDate, // Send string directly
+            datePaid: finalDatePaid, // UPDATED: Captured Date Paid
             currency: getVal(row, "Currency") || "INR",
             exchangeRate: exchangeRate || 1,
             isLut: String(getVal(row, "Is LUT")).toUpperCase() === "TRUE",
@@ -648,6 +658,7 @@ export default function App() {
           id: inv.id,
           client: inv.client,
           date: inv.date,
+          datePaid: inv.datePaid, // UPDATED: Sending to backend
           amount: subtotal + tax,
           tax,
           status: inv.status,
@@ -664,8 +675,13 @@ export default function App() {
         };
 
         try {
-          const res = await apiFetch(`${API_URL}/api/invoices`, {
+          // Use fetch directly to avoid auto-throw on 409
+          const res = await fetch(`${API_URL}/api/invoices`, {
             method: "POST",
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${token}`
+            },
             body: JSON.stringify(payload),
           });
 
@@ -941,16 +957,15 @@ export default function App() {
                    <table className="w-full text-sm text-left table-auto">
                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50 dark:text-slate-400">
                        <tr>
-                        {/*-- Resizable Table Headers --*/}
                         <ResizableTH label="ID" sortKey="id" onSort={handleSort} sortConfig={sortConfig} />
                         <ResizableTH label="Client" sortKey="client" onSort={handleSort} sortConfig={sortConfig} />
-                        <ResizableTH label="Description" noSort={true} /> {/* New */}
+                        <ResizableTH label="Description" noSort={true} />
                         <ResizableTH label="Date" sortKey="date" onSort={handleSort} sortConfig={sortConfig} />
                         <ResizableTH label="Amount" sortKey="amount" onSort={handleSort} sortConfig={sortConfig} align="right" />
-                        <ResizableTH label="ROE" noSort={true} align="right" /> {/* New */}
-                        <ResizableTH label="INR Amount" noSort ={true} align="right"  /> {/* New */}
+                        <ResizableTH label="ROE" noSort={true} align="right" />
+                        <ResizableTH label="INR Amount" noSort ={true} align="right"  />
                         <ResizableTH label="Status" sortKey="status" onSort={handleSort} sortConfig={sortConfig} />
-                        <ResizableTH label="Date Paid" noSort={true}/> {/* New */}
+                        <ResizableTH label="Date Paid" noSort={true}/>
                         <ResizableTH label="Actions" noSort={true} align="right" />
                        </tr>
                      </thead>
@@ -976,7 +991,7 @@ export default function App() {
                              <td className="px-6 py-4 text-right text-slate-500">{roe.toFixed(2)}</td>
                              <td className="px-6 py-4 text-right font-bold text-slate-700 dark:text-slate-200">₹ {formatNumber(inrAmount, userSettings.number_format)}</td>
                              <td className="px-6 py-4"><Badge type={inv.status === 'Paid' ? 'success' : 'warning'}>{inv.status}</Badge></td>
-                             <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">{inv.status === 'Paid' ? formatDate(inv.date) : '-'}</td>
+                             <td className="px-6 py-4 text-xs text-slate-500 whitespace-nowrap">{inv.status === 'Paid' ? formatDate(inv.date_paid || inv.date) : '-'}</td>
                              <td className="px-6 py-4 flex justify-center gap-2">
                                 {inv.status !== 'Paid' && <button onClick={(e) => { e.stopPropagation(); handleMarkAsPaid(inv); }} className="p-1 text-emerald-600 hover:bg-emerald-50 rounded" title="Mark Paid"><CheckCircle size={16} /></button>}
                                 <button onClick={(e) => { e.stopPropagation(); generateInvoicePDF(inv, userSettings, addToast); }} className="p-1 text-blue-600 hover:bg-blue-50 rounded" title="PDF"><Printer size={16} /></button>

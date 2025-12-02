@@ -122,14 +122,13 @@ exports.getAllInvoices = async (req, res) => {
 --------------------------------------------------------- */
 
 exports.createInvoice = async (req, res) => {
-    console.log("📥 Create Invoice Payload - Date:", req.body.date);
+    // Only log essential info
+    // console.log("📥 Create Invoice:", req.body.id); 
 
     const { id, client, amount, tax, status, type, currency, exchangeRate, items } = req.body;
 
     const normalizedDate = normalizeDate(req.body.date);
     const normalizedPaid = req.body.datePaid ? normalizeDate(req.body.datePaid) : null;
-
-    console.log("✅ Normalized to:", normalizedDate);
 
     try {
         await db.query("BEGIN");
@@ -164,8 +163,15 @@ exports.createInvoice = async (req, res) => {
 
     } catch (err) {
         await db.query("ROLLBACK");
+        
+        // CHECK FOR DUPLICATE ERROR (Code 23505)
+        if (err.code === "23505") {
+            // Silently return 409 Conflict so Frontend can handle the overwrite
+            return res.status(409).json({ error: "Duplicate Invoice ID" });
+        }
+
+        // Log real errors
         console.error("❌ Create Invoice Error:", err);
-        if (err.code === "23505") return res.status(409).json({ error: "Duplicate Invoice ID" });
         res.status(500).json({ error: err.message });
     }
 };
