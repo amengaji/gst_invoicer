@@ -28,7 +28,7 @@ import SettingsPage from './components/features/SettingsPage';
 import InvoiceViewModal from './components/features/InvoiceViewModal';
 import { generateInvoicePDF } from './lib/pdf-generator';
 
-// Define API URL
+// Define API URL - LEFT EMPTY to use relative path on AWS
 const API_URL = '';
 
 // === RESIZABLE COLUMN HEADER COMPONENT ===

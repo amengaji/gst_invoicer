@@ -18,8 +18,7 @@ export default function Login({ onLogin }) {
         : { email: formData.email, password: formData.password };
 
     try {
-      // FIX: Removed "http://localhost:5000"
-      // Now it asks for "/api/login" on WHATEVER server it is currently loaded from
+      // FIX: Using relative path (no http://localhost:5000)
       const res = await fetch(`${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
