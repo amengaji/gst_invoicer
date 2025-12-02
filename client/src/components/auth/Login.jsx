@@ -18,7 +18,9 @@ export default function Login({ onLogin }) {
         : { email: formData.email, password: formData.password };
 
     try {
-      const res = await fetch(`http://localhost:5000${endpoint}`, {
+      // FIX: Removed "http://localhost:5000" so it uses the relative path
+      // This allows Nginx to route the request correctly on the server
+      const res = await fetch(`${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload)
