@@ -18,8 +18,8 @@ export default function Login({ onLogin }) {
         : { email: formData.email, password: formData.password };
 
     try {
-      // FIX: Removed "http://localhost:5000" so it uses the relative path
-      // This allows Nginx to route the request correctly on the server
+      // FIX: Removed "http://localhost:5000"
+      // Now it asks for "/api/login" on WHATEVER server it is currently loaded from
       const res = await fetch(`${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -39,6 +39,7 @@ export default function Login({ onLogin }) {
         setError(data.error || "Authentication failed");
       }
     } catch (err) {
+        console.error(err);
         setError("Server connection failed. Is the backend running?");
     } finally {
         setIsLoading(false);
