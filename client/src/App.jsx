@@ -29,7 +29,7 @@ import InvoiceViewModal from './components/features/InvoiceViewModal';
 import { generateInvoicePDF } from './lib/pdf-generator';
 
 // Define API URL
-const API_URL = 'http://localhost:5000';
+const API_URL = '';
 
 // === RESIZABLE COLUMN HEADER COMPONENT ===
 function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align, children }) {
