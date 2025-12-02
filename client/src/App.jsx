@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, FileText, Receipt, PieChart, Settings, Menu, Moon, Sun, Search, Users, 
-  CheckCircle, Printer, Edit, Trash2, Download, Plus, FileSpreadsheet, ChevronUp, ChevronDown, LogOut, RefreshCw 
+  CheckCircle, Printer, Edit, Trash2, Download, Plus, FileSpreadsheet, ChevronUp, ChevronDown, LogOut, RefreshCw, X 
 } from 'lucide-react';
 import * as XLSX from 'xlsx'; 
 import { ToastContainer } from './components/ui/Toast';
@@ -31,26 +31,25 @@ import { generateInvoicePDF } from './lib/pdf-generator';
 // Define API URL
 const API_URL = 'http://localhost:5000';
 
-// === SUPER ENHANCED RESIZABLE COLUMN HEADER ===
-function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align }) {
+// === RESIZABLE COLUMN HEADER COMPONENT ===
+function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align, children }) {
   const STORAGE_KEY = `invoice_col_${label.replace(/\s+/g, "_").toLowerCase()}`;
 
   const thRef = React.useRef(null);
   const startX = React.useRef(null);
   const startWidth = React.useRef(null);
 
-  // 1️⃣ Load saved width from localStorage
+  // Load saved width from localStorage
   const [width, setWidth] = React.useState(() => {
     const saved = localStorage.getItem(STORAGE_KEY);
     return saved ? parseInt(saved, 10) : 150;
   });
 
-  // 2️⃣ Save width to localStorage on change
+  // Save width to localStorage on change
   React.useEffect(() => {
     localStorage.setItem(STORAGE_KEY, width);
   }, [width]);
 
-  // 3️⃣ Handle drag start
   const handleMouseDown = (e) => {
     e.preventDefault();
     startX.current = e.clientX;
@@ -61,26 +60,16 @@ function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align }) {
     document.addEventListener("mouseup", handleMouseUp);
   };
 
-  // 4️⃣ Mouse move while dragging
   const handleMouseMove = (e) => {
     const delta = e.clientX - startX.current;
     const newWidth = Math.max(80, startWidth.current + delta);
     setWidth(newWidth);
   };
 
-  // 5️⃣ Mouse up: stop events + restore selection
   const handleMouseUp = () => {
     document.body.style.userSelect = "auto";
     document.removeEventListener("mousemove", handleMouseMove);
     document.removeEventListener("mouseup", handleMouseUp);
-  };
-
-  // 6️⃣ Auto-fit width on double click
-  const handleDoubleClick = () => {
-    if (!thRef.current) return;
-    const contentWidth = thRef.current.scrollWidth + 24; // some padding
-    const autoWidth = Math.max(120, contentWidth);
-    setWidth(autoWidth);
   };
 
   return (
@@ -91,14 +80,12 @@ function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align }) {
         align === "right" ? "text-right" : align === "center" ? "text-center" : ""
       }`}
     >
-      {/* Sortable Header */}
-      <div
-        className="flex items-center gap-1 cursor-pointer"
+      <div 
+        className="flex items-center gap-1 cursor-pointer" 
         onClick={() => !noSort && onSort(sortKey)}
-        onDoubleClick={handleDoubleClick}
       >
-        {label}
-
+        {children || label}
+        
         {!noSort && (
           <div className="flex flex-col text-slate-400">
             {sortConfig.key === sortKey && sortConfig.direction === "asc" ? (
@@ -115,10 +102,10 @@ function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align }) {
         )}
       </div>
 
-      {/* Resize Drag Handle */}
-      <div
-        onMouseDown={handleMouseDown}
-        className="absolute top-0 right-0 w-2 h-full cursor-col-resize hover:bg-slate-400/30"
+      {/* Resize Handle */}
+      <div 
+        onMouseDown={handleMouseDown} 
+        className="absolute top-0 right-0 w-2 h-full cursor-col-resize hover:bg-slate-400/30" 
       />
     </th>
   );
@@ -133,6 +120,9 @@ export default function App() {
   const [searchQuery, setSearchQuery] = useState('');
   
   const [token, setToken] = useState(localStorage.getItem('token'));
+
+  // --- Bulk Action State ---
+  const [selectedIds, setSelectedIds] = useState(new Set());
 
   // --- Logout ---
   const handleLogout = () => {
@@ -150,7 +140,6 @@ export default function App() {
       };
       const response = await fetch(url, { ...options, headers });
       
-      // If server returns 400/404/500/409, throw an error!
       if (!response.ok) {
           const text = await response.text();
           throw new Error(`Server Error (${response.status}): ${text}`);
@@ -163,18 +152,16 @@ export default function App() {
   if (!token) {
       return <Login onLogin={(t) => { 
         localStorage.setItem('token', t); setToken(t); 
-        //Force a full reload to reset state and ensure clean state and data loading
         window.location.reload();
       }} />;
   }
   
-  // --- Dark Mode Persistence ---
+  // --- Dark Mode ---
   const [darkMode, setDarkMode] = useState(() => {
       const savedMode = localStorage.getItem('darkMode');
       return savedMode === 'true';
   });
 
-  // Effect to apply class AND save to LocalStorage
   useEffect(() => {
     localStorage.setItem('darkMode', darkMode);
     if (darkMode) document.documentElement.classList.add('dark');
@@ -182,19 +169,14 @@ export default function App() {
   }, [darkMode]);
 
 
-  // --- Filtering State ---
+  // --- State Variables ---
   const [selectedFY, setSelectedFY] = useState(''); 
   const [sortConfig, setSortConfig] = useState({ key: 'date', direction: 'desc' });
 
-  // --- Global Data State ---
   const [invoices, setInvoices] = useState([]);
   const [expenses, setExpenses] = useState([]);
   const [clients, setClients] = useState([]);
-  
-  // --- Live Rates State ---
   const [exchangeRates, setExchangeRates] = useState(null);
-
-  // --- View Modal State ---
   const [viewingInvoice, setViewingInvoice] = useState(null);
   
   const [userSettings, setUserSettings] = useState({
@@ -214,7 +196,7 @@ export default function App() {
   const [currentPage, setCurrentPage] = useState(1);
   const ITEMS_PER_PAGE = 10;
 
-  // --- Modals & Toasts ---
+  // --- Modals ---
   const [paymentModalOpen, setPaymentModalOpen] = useState(false);
   const [currentPaymentInvoice, setCurrentPaymentInvoice] = useState(null);
   const [toasts, setToasts] = useState([]);
@@ -222,7 +204,7 @@ export default function App() {
   const [invoiceToDelete, setInvoiceToDelete] = useState(null);
   const [editingInvoice, setEditingInvoice] = useState(null);
 
-  // --- Helper: Calculate Fiscal Year ---
+  // --- Helper: Fiscal Year ---
   const getFiscalYear = (dateStr) => {
       if (!dateStr) return 'Unknown';
       const date = new Date(dateStr);
@@ -232,11 +214,10 @@ export default function App() {
       return `FY ${year}-${String(year + 1).slice(-2)}`;
   };
 
-  // --- API: Load Data ---
+  // --- Load Data ---
   const loadData = async () => {
     if (!token) return; 
     try {
-        // Fetch App Data
         const [invRes, expRes, cliRes, setRes] = await Promise.all([
             apiFetch(`${API_URL}/api/invoices`),
             apiFetch(`${API_URL}/api/expenses`),
@@ -244,7 +225,6 @@ export default function App() {
             apiFetch(`${API_URL}/api/settings`)
         ]);
         
-        // Fetch Live Rates (Silent fail if error)
         try {
           const rateRes = await fetch('https://open.er-api.com/v6/latest/USD');
           const rateData = await rateRes.json();
@@ -265,27 +245,14 @@ export default function App() {
         if (!selectedFY) setSelectedFY("All Time");
 
         const dbSettings = await setRes.json();
-        
         if (dbSettings && dbSettings.id) {
             setUserSettings(prev => ({
                 ...prev,
-                companyName: dbSettings.company_name || prev.companyName,
-                email: dbSettings.email || prev.email,
-                gstin: dbSettings.gstin || prev.gstin,
-                address: dbSettings.address || prev.address,
-                state: dbSettings.state || prev.state,
-                invoicePrefix: dbSettings.invoice_prefix || prev.invoicePrefix,
-                currency: dbSettings.currency || prev.currency,
-                filingFrequency: dbSettings.filing_frequency || prev.filingFrequency,
-                logo: dbSettings.logo || prev.logo,
-                lutNumber: dbSettings.lut_number || prev.lutNumber,
-                number_format: dbSettings.number_format || prev.number_format,
+                ...dbSettings,
                 bank_accounts: typeof dbSettings.bank_accounts === 'string' 
                     ? JSON.parse(dbSettings.bank_accounts) 
                     : (dbSettings.bank_accounts || [])
             }));
-        } else {
-             setUserSettings(prev => ({ ...prev }));
         }
     } catch (e) {
         console.error("Failed to load data", e);
@@ -299,9 +266,10 @@ export default function App() {
 
   useEffect(() => {
     setCurrentPage(1);
+    setSelectedIds(new Set()); // Reset selection on filter change
   }, [searchQuery, selectedFY]);
 
-  // --- Handlers ---
+  // --- Toast Handler ---
   const addToast = (message, type = 'success') => {
     const id = Date.now() + Math.random();
     setToasts(prev => [...prev, { id, message, type }]);
@@ -309,6 +277,7 @@ export default function App() {
 
   const removeToast = (id) => setToasts(prev => prev.filter(t => t.id !== id));
 
+  // --- Invoice Actions ---
   const handleSaveInvoice = async (newInvoice) => {
     try {
         const safeInvoices = Array.isArray(invoices) ? invoices : [];
@@ -324,16 +293,10 @@ export default function App() {
         
         addToast(isUpdate ? "Invoice updated!" : "Invoice created!", "success");
         setEditingInvoice(null);
-        setActiveTab(tab => {
-          const finalTab = typeof tab === "string" ? tab : tab; 
-          localStorage.setItem("activeTab", finalTab);
-          return finalTab;
-        });
-
+        setActiveTab('invoices');
         loadData(); 
     } catch (e) { addToast(`Error: ${e.message}`, "error"); }
   };
-
 
   const handleMarkAsPaid = async (invoice) => {
     if (invoice.currency === 'INR') {
@@ -355,7 +318,6 @@ export default function App() {
     } catch (e) { addToast("Update failed", "error"); }
   };
 
-
   const handleDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
     try {
@@ -367,6 +329,50 @@ export default function App() {
     } catch (e) { 
         addToast(`Delete failed: ${e.message}`, "error"); 
     }
+  };
+
+  // --- BULK DELETE HANDLER (NEW) ---
+  const handleBulkDelete = async () => {
+      if (selectedIds.size === 0) return;
+      
+      if (!window.confirm(`Are you sure you want to delete ${selectedIds.size} invoices?`)) {
+          return;
+      }
+
+      try {
+          const res = await apiFetch(`${API_URL}/api/invoices/delete-batch`, {
+              method: 'POST',
+              body: JSON.stringify({ ids: Array.from(selectedIds) })
+          });
+          
+          if(res.ok) {
+              addToast("Invoices deleted successfully", "success");
+              setSelectedIds(new Set());
+              loadData();
+          }
+      } catch (e) {
+          addToast("Bulk delete failed", "error");
+      }
+  };
+
+  // --- Selection Handlers ---
+  const toggleSelectAll = (e) => {
+      if (e.target.checked) {
+          const allIds = paginatedInvoices.map(inv => inv.id);
+          setSelectedIds(new Set(allIds));
+      } else {
+          setSelectedIds(new Set());
+      }
+  };
+
+  const toggleSelectOne = (id) => {
+      const newSet = new Set(selectedIds);
+      if (newSet.has(id)) {
+          newSet.delete(id);
+      } else {
+          newSet.add(id);
+      }
+      setSelectedIds(newSet);
   };
 
   const handleSaveSettings = async (newSettings) => {
@@ -432,16 +438,19 @@ export default function App() {
     if (sortConfig.key) {
       data.sort((a, b) => {
         let aValue, bValue;
+        
         if (sortConfig.key === 'amount') {
            aValue = parseFloat(a.amount);
            bValue = parseFloat(b.amount);
         } else if (sortConfig.key === 'client') {
+           // Sort by Client Name
            aValue = (a.client?.name || '').toLowerCase();
            bValue = (b.client?.name || '').toLowerCase();
         } else {
            aValue = (a[sortConfig.key] || '').toString().toLowerCase();
            bValue = (b[sortConfig.key] || '').toString().toLowerCase();
         }
+        
         if (aValue < bValue) return sortConfig.direction === 'asc' ? -1 : 1;
         if (aValue > bValue) return sortConfig.direction === 'asc' ? 1 : -1;
         return 0;
@@ -457,7 +466,6 @@ export default function App() {
 
   // --- Invoice Import ---
   const handleDownloadInvoiceTemplate = () => {
-    // UPDATED: Added "Date Paid" to header and sample
     const headers = "Invoice No,Date,Date Paid,Client Name,Client State,Currency,Exchange Rate,Item Desc,Item HSN,Item Qty,Item Price,Is LUT\n";
     const sampleRow1 = "INV-001,01-04-2025,05-04-2025,Acme Corp,Maharashtra,INR,1,Web Dev Services,9983,1,50000,FALSE\n";
     const blob = new Blob([headers + sampleRow1], { type: 'text/csv' });
@@ -502,7 +510,7 @@ export default function App() {
         return val !== undefined && val !== null ? String(val).trim() : "";
       };
 
-      // Helper to parse DD-MM-YYYY or DD/MM/YYYY to YYYY-MM-DD
+      // Helper to parse DD-MM-YYYY
       const parseDate = (raw) => {
           if (!raw) return "";
           const str = String(raw).trim();
@@ -511,7 +519,15 @@ export default function App() {
              const [_, d, m, y] = match;
              return `${y}-${m.padStart(2,'0')}-${d.padStart(2,'0')}`;
           }
-          return str; // Return as is if no match (e.g. already ISO or excel serial handled elsewhere)
+          return str; 
+      };
+
+      // Helper to Normalize State (Foreign (Export) -> Other)
+      const normalizeState = (val) => {
+          if (!val) return "";
+          const lower = String(val).toLowerCase().trim();
+          if (lower.includes("foreign") || lower.includes("export")) return "Other";
+          return val;
       };
 
       // 2. CLIENT CACHE
@@ -522,62 +538,7 @@ export default function App() {
         });
       }
 
-      // 3. AUTO-CREATE CLIENTS
-      const uniqueNewClients = new Map();
-
-      for (const row of jsonData) {
-        const name = getVal(row, "Client Name");
-        const rawContact =
-          getVal(row, "Contact Name") ||
-          getVal(row, "Contact") ||
-          getVal(row, "Person");
-
-        if (name && !clientCache.has(name.toLowerCase())) {
-          if (!uniqueNewClients.has(name.toLowerCase())) {
-            const cNames = rawContact.split(";");
-            const cEmails = (getVal(row, "Email") || "").split(";");
-            const cPhones = (getVal(row, "Phone") || "").split(";");
-
-            const contacts = cNames
-              .map((cn, i) => ({
-                name: cn.trim(),
-                email: (cEmails[i] || "").trim(),
-                phone: (cPhones[i] || "").trim(),
-              }))
-              .filter((c) => c.name);
-
-            if (contacts.length === 0)
-              contacts.push({ name: "", email: "", phone: "" });
-
-            const newClient = {
-              id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
-              name,
-              state: getVal(row, "Client State") || "Maharashtra",
-              address: "Imported Address",
-              city: "Imported City",
-              country: "India",
-              contacts,
-            };
-
-            uniqueNewClients.set(name.toLowerCase(), newClient);
-          }
-        }
-      }
-
-      // Save newly-created clients
-      for (const client of uniqueNewClients.values()) {
-        try {
-          await apiFetch(`${API_URL}/api/clients`, {
-            method: "POST",
-            body: JSON.stringify(client),
-          });
-          clientCache.set(client.name.toLowerCase(), client);
-        } catch (e) {
-          console.error("Client create error", e);
-        }
-      }
-
-      // 4. GROUP INVOICES
+      // 3. GROUP INVOICES
       const invoicesMap = new Map();
 
       for (const row of jsonData) {
@@ -595,33 +556,53 @@ export default function App() {
           invoicesMap.get(invNo).items.push(item);
         } else {
           const clientName = getVal(row, "Client Name");
-          const matchedClient =
-            clientCache.get(clientName.toLowerCase()) || {
-              name: "Unknown",
-              state: "Maharashtra",
-            };
+          
+          // Get Raw State from CSV and Normalize it
+          const rawClientState = getVal(row, "Client State");
+          const normalizedClientState = normalizeState(rawClientState);
 
-          const csvState = getVal(row, "Client State");
-          const finalState = csvState || matchedClient.state;
+          let matchedClient = clientCache.get(clientName.toLowerCase());
+          
+          // AUTO-CREATE CLIENT if not exists
+          if (!matchedClient) {
+             const newClient = {
+               id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+               name: clientName,
+               // Use normalized state for new clients ("Other" instead of "Foreign")
+               state: normalizedClientState || "Maharashtra",
+               address: "Imported Address",
+               city: "Imported City",
+               country: "India",
+               contacts: [{ name: "", email: "", phone: "" }],
+             };
+
+             // Create client in DB
+             await apiFetch(`${API_URL}/api/clients`, {
+                method: "POST",
+                body: JSON.stringify(newClient),
+             });
+             
+             matchedClient = newClient;
+             clientCache.set(clientName.toLowerCase(), newClient);
+          }
+
+          const rawDatePaid = getVal(row, "Date Paid");
+          const finalDatePaid = parseDate(rawDatePaid);
+
+          // Determine State to use for this invoice import (prefer CSV if available)
+          const stateToUse = normalizedClientState || matchedClient.state;
 
           const rawRoe = getVal(row, "Exchange Rate");
           const exchangeRate = parseFloat(rawRoe);
-          const isPaid = rawRoe !== "" && !isNaN(exchangeRate) && exchangeRate > 0;
-
-          // DATE PARSING using helper
-          const finalDate = parseDate(getVal(row, "Date"));
-          
-          // DATE PAID PARSING (UPDATED)
-          const rawDatePaid = getVal(row, "Date Paid");
-          const finalDatePaid = parseDate(rawDatePaid);
+          const isPaid = rawDatePaid !== "" || (rawRoe !== "" && !isNaN(exchangeRate) && exchangeRate > 0);
 
           invoicesMap.set(invNo, {
             id: invNo,
             invoiceNo: invNo,
             client: matchedClient,
-            csvClientState: finalState,
-            date: finalDate, // Send string directly
-            datePaid: finalDatePaid, // UPDATED: Captured Date Paid
+            csvClientState: stateToUse, // Store for type calculation
+            date: parseDate(getVal(row, "Date")),
+            datePaid: finalDatePaid,
             currency: getVal(row, "Currency") || "INR",
             exchangeRate: exchangeRate || 1,
             isLut: String(getVal(row, "Is LUT")).toUpperCase() === "TRUE",
@@ -641,7 +622,8 @@ export default function App() {
           0
         );
 
-        const stateToCheck = inv.csvClientState || inv.client.state;
+        // LOGIC FIX: Use the state from CSV (csvClientState) to decide Type
+        const stateToCheck = inv.csvClientState; 
         const isExport = stateToCheck === "Other";
         const isInterstate = stateToCheck !== userSettings.state;
 
@@ -658,7 +640,7 @@ export default function App() {
           id: inv.id,
           client: inv.client,
           date: inv.date,
-          datePaid: inv.datePaid, // UPDATED: Sending to backend
+          datePaid: inv.datePaid,
           amount: subtotal + tax,
           tax,
           status: inv.status,
@@ -715,31 +697,7 @@ export default function App() {
     e.target.value = null;
   };
 
-
-  const navItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'clients', label: 'Clients', icon: Users },
-    { id: 'invoices', label: 'Invoices', icon: FileText },
-    { id: 'expenses', label: 'Expenses', icon: Receipt },
-    { id: 'reports', label: 'Tax Filing', icon: PieChart },
-  ];
-
-  const TableHeader = ({ label, sortKey, className = "" }) => (
-    <th 
-      className={`px-6 py-4 cursor-pointer hover:bg-slate-100 dark:hover:bg-slate-700/50 transition-colors select-none ${className}`}
-      onClick={() => handleSort(sortKey)}
-    >
-      <div className={`flex items-center gap-1 ${className.includes('right') ? 'justify-end' : ''}`}>
-        {label}
-        <div className="flex flex-col text-slate-400">
-           {sortConfig.key === sortKey && sortConfig.direction === 'asc' ? <ChevronUp size={14} className="text-[#3194A0]" /> : <ChevronUp size={14} className="opacity-30"/>}
-           {sortConfig.key === sortKey && sortConfig.direction === 'desc' ? <ChevronDown size={14} className="text-[#3194A0]" /> : <ChevronDown size={14} className="opacity-30"/>}
-        </div>
-      </div>
-    </th>
-  );
-  
-  // --- Calculation for Stats ---
+  // --- CALCULATION HELPER (Missing in previous version) ---
   const calculateTotalPendingINR = () => {
     return invoices.filter(i => i.status !== 'Paid').reduce((acc, inv) => {
         const amount = parseFloat(inv.amount) || 0;
@@ -763,9 +721,16 @@ export default function App() {
     }, 0);
   };
 
+  const navItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+    { id: 'clients', label: 'Clients', icon: Users },
+    { id: 'invoices', label: 'Invoices', icon: FileText },
+    { id: 'expenses', label: 'Expenses', icon: Receipt },
+    { id: 'reports', label: 'Tax Filing', icon: PieChart },
+  ];
 
   return (
-    <div className={`min-h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200 font-sans text-slate-900 dark:text-slate-100 flex overflow-hidden`}>
+    <div className={`h-screen bg-slate-50 dark:bg-slate-900 transition-colors duration-200 font-sans text-slate-900 dark:text-slate-100 flex overflow-hidden`}>
       <ToastContainer toasts={toasts} removeToast={removeToast} />
       
       <DeleteModal isOpen={deleteModalOpen} onClose={() => setDeleteModalOpen(false)} onConfirm={handleDeleteInvoice} title="Delete Invoice" message="Are you sure?" />
@@ -790,8 +755,8 @@ export default function App() {
         />
       )}
 
-      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0`}>
-        <div className="h-16 flex items-center px-6 border-b border-slate-200 dark:border-slate-700">
+      <aside className={`fixed inset-y-0 left-0 z-50 w-64 bg-white dark:bg-slate-800 border-r border-slate-200 dark:border-slate-700 transform transition-transform duration-300 ease-in-out ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full'} lg:relative lg:translate-x-0 flex flex-col h-full`}>
+        <div className="h-16 flex items-center px-6 border-b border-slate-200 dark:border-slate-700 flex-shrink-0">
            {/* Dynamic Logo Logic */}
            {userSettings.logo ? (
                <img 
@@ -808,7 +773,7 @@ export default function App() {
                <span className="text-[#3194A0]"> Invoice</span>
            </span>
         </div>
-        <nav className="p-4 space-y-1">
+        <nav className="p-4 space-y-1 flex-1 overflow-y-auto">
           {navItems.map((item) => (
             <button key={item.id} 
                 onClick={() => {
@@ -821,7 +786,7 @@ export default function App() {
             </button>
           ))}
         </nav>
-        <div className="absolute bottom-0 w-full p-4 border-t border-slate-200 dark:border-slate-700">
+        <div className="p-4 border-t border-slate-200 dark:border-slate-700 flex-shrink-0 bg-white dark:bg-slate-800">
           <button onClick={() => setActiveTab('settings')} className={`flex items-center w-full px-4 py-2 text-sm transition-colors rounded-lg ${activeTab === 'settings' ? 'bg-slate-100 dark:bg-slate-700 text-slate-900 dark:text-white' : 'text-slate-600 dark:text-slate-400'}`}>
             <Settings size={18} className="mr-3" /> Settings
           </button>
@@ -860,6 +825,7 @@ export default function App() {
                onCancel={() => { setActiveTab('invoices'); setEditingInvoice(null); }}
                userSettings={userSettings}
                clients={clients}
+               invoices={invoices}
                editingInvoice={editingInvoice}
              />
            )}
@@ -937,6 +903,14 @@ export default function App() {
                   </Card>
                </div>
 
+                {/* --- BULK DELETE BAR --- */}
+               {selectedIds.size > 0 && (
+                 <div className="flex items-center justify-between bg-red-50 dark:bg-red-900/30 p-3 rounded-lg border border-red-200 dark:border-red-800 transition-all">
+                    <span className="text-sm font-medium text-red-700 dark:text-red-300">{selectedIds.size} invoice{selectedIds.size > 1 ? 's' : ''} selected</span>
+                    <button onClick={handleBulkDelete} className="flex items-center gap-2 px-3 py-1.5 bg-red-600 text-white text-xs font-bold rounded hover:bg-red-700 transition-colors"><Trash2 size={14}/> Delete Selected</button>
+                 </div>
+               )}
+
                <div className="flex justify-between items-center">
                  <div className="flex items-center gap-3">
                     <h2 className="text-2xl font-bold dark:text-white">All Invoices</h2>
@@ -957,15 +931,25 @@ export default function App() {
                    <table className="w-full text-sm text-left table-auto">
                      <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50 dark:text-slate-400">
                        <tr>
+                        {/* --- CHECKBOX HEADER --- */}
+                        <th className="px-6 py-4 w-10">
+                            <input 
+                                type="checkbox" 
+                                onChange={toggleSelectAll} 
+                                checked={paginatedInvoices.length > 0 && selectedIds.size === paginatedInvoices.length}
+                                className="rounded border-slate-300 focus:ring-[#3194A0]"
+                            />
+                        </th>
+                        {/*-- Resizable Table Headers --*/}
                         <ResizableTH label="ID" sortKey="id" onSort={handleSort} sortConfig={sortConfig} />
                         <ResizableTH label="Client" sortKey="client" onSort={handleSort} sortConfig={sortConfig} />
-                        <ResizableTH label="Description" noSort={true} />
+                        <ResizableTH label="Description" noSort={true} /> {/* New */}
                         <ResizableTH label="Date" sortKey="date" onSort={handleSort} sortConfig={sortConfig} />
                         <ResizableTH label="Amount" sortKey="amount" onSort={handleSort} sortConfig={sortConfig} align="right" />
-                        <ResizableTH label="ROE" noSort={true} align="right" />
-                        <ResizableTH label="INR Amount" noSort ={true} align="right"  />
+                        <ResizableTH label="ROE" noSort={true} align="right" /> {/* New */}
+                        <ResizableTH label="INR Amount" noSort ={true} align="right"  /> {/* New */}
                         <ResizableTH label="Status" sortKey="status" onSort={handleSort} sortConfig={sortConfig} />
-                        <ResizableTH label="Date Paid" noSort={true}/>
+                        <ResizableTH label="Date Paid" noSort={true}/> {/* New */}
                         <ResizableTH label="Actions" noSort={true} align="right" />
                        </tr>
                      </thead>
@@ -976,13 +960,22 @@ export default function App() {
                          const amount = parseFloat(inv.amount);
                          const inrAmount = amount * roe;
                          const desc = inv.items && inv.items.length > 0 ? inv.items[0].desc : 'No description';
+                         const isSelected = selectedIds.has(inv.id);
                          
                          return (
                            <tr 
                               key={inv.id} 
-                              className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors"
+                              className={`border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50 cursor-pointer transition-colors ${isSelected ? 'bg-blue-50 dark:bg-blue-900/20' : ''}`}
                               onClick={() => setViewingInvoice(inv)}
                            >
+                             <td className="px-6 py-4" onClick={(e) => e.stopPropagation()}>
+                                <input 
+                                    type="checkbox" 
+                                    checked={isSelected}
+                                    onChange={() => toggleSelectOne(inv.id)}
+                                    className="rounded border-slate-300 focus:ring-[#3194A0]"
+                                />
+                             </td>
                              <td className="px-6 py-4 font-medium">{inv.id}</td>
                              <td className="px-6 py-4 font-medium text-slate-700 dark:text-slate-300">{inv.client?.name || 'Unknown'}</td>
                              <td className="px-6 py-4 text-slate-500 max-w-[200px] truncate" title={desc}>{desc}</td>
@@ -1002,7 +995,7 @@ export default function App() {
                          );
                        })}
                        {processedInvoices.length === 0 && (
-                         <tr><td colSpan="10" className="text-center py-10 text-slate-500">No invoices found matching "{searchQuery}" in {selectedFY}</td></tr>
+                         <tr><td colSpan="11" className="text-center py-10 text-slate-500">No invoices found matching "{searchQuery}" in {selectedFY}</td></tr>
                        )}
                      </tbody>
                    </table>

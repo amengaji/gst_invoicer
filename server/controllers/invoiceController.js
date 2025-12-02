@@ -7,7 +7,7 @@ const db = require('../config/db');
 const normalizeDate = (rawDate) => {
   if (!rawDate) return null;
  
-  // 1. Handle ISO Format (YYYY-MM-DD) - Standard HTML5 Input
+  // 1. Handle ISO Format (YYYY-MM-DD)
   if (/^\d{4}-\d{2}-\d{2}$/.test(rawDate)) {
       return rawDate;
   }
@@ -46,7 +46,6 @@ const normalizeDate = (rawDate) => {
 /* ---------------------------------------------------------
    GET ALL INVOICES
 --------------------------------------------------------- */
-
 exports.getAllInvoices = async (req, res) => {
     try {
         const invResult = await db.query(`
@@ -116,15 +115,10 @@ exports.getAllInvoices = async (req, res) => {
     }
 };
 
-
 /* ---------------------------------------------------------
    CREATE INVOICE
 --------------------------------------------------------- */
-
 exports.createInvoice = async (req, res) => {
-    // Only log essential info
-    // console.log("📥 Create Invoice:", req.body.id); 
-
     const { id, client, amount, tax, status, type, currency, exchangeRate, items } = req.body;
 
     const normalizedDate = normalizeDate(req.body.date);
@@ -166,21 +160,17 @@ exports.createInvoice = async (req, res) => {
         
         // CHECK FOR DUPLICATE ERROR (Code 23505)
         if (err.code === "23505") {
-            // Silently return 409 Conflict so Frontend can handle the overwrite
             return res.status(409).json({ error: "Duplicate Invoice ID" });
         }
 
-        // Log real errors
         console.error("❌ Create Invoice Error:", err);
         res.status(500).json({ error: err.message });
     }
 };
 
-
 /* ---------------------------------------------------------
    UPDATE INVOICE
 --------------------------------------------------------- */
-
 exports.updateInvoice = async (req, res) => {
     const { id } = req.params;
     const { client, amount, tax, status, type, currency, exchangeRate, items } = req.body;
@@ -229,16 +219,13 @@ exports.updateInvoice = async (req, res) => {
     }
 };
 
-
 /* ---------------------------------------------------------
    UPDATE STATUS
 --------------------------------------------------------- */
-
 exports.updateInvoiceStatus = async (req, res) => {
     const { id } = req.params;
     const { status, exchangeRate } = req.body;
 
-    // Use current date
     const today = new Date().toISOString().split('T')[0];
     const normalizedPaid = status === "Paid" ? today : null;
 
@@ -257,11 +244,9 @@ exports.updateInvoiceStatus = async (req, res) => {
     }
 };
 
-
 /* ---------------------------------------------------------
    DELETE INVOICE
 --------------------------------------------------------- */
-
 exports.deleteInvoice = async (req, res) => {
     const { id } = req.params;
     try {
@@ -273,6 +258,35 @@ exports.deleteInvoice = async (req, res) => {
 
     } catch (err) {
         console.error("❌ Delete Invoice Error:", err);
+        res.status(500).json({ error: err.message });
+    }
+};
+
+/* ---------------------------------------------------------
+   BULK DELETE INVOICES (NEW)
+--------------------------------------------------------- */
+exports.deleteBulkInvoices = async (req, res) => {
+    const { ids } = req.body;
+    
+    if (!ids || !Array.isArray(ids) || ids.length === 0) {
+        return res.status(400).json({ error: "No IDs provided" });
+    }
+
+    try {
+        await db.query('BEGIN');
+        
+        // Postgres ANY() is faster for bulk operations
+        await db.query(`
+            DELETE FROM invoices 
+            WHERE id = ANY($1) AND user_id = $2
+        `, [ids, req.userId]);
+
+        await db.query('COMMIT');
+        res.json({ message: `${ids.length} invoices deleted` });
+
+    } catch (err) {
+        await db.query('ROLLBACK');
+        console.error("❌ Bulk Delete Error:", err);
         res.status(500).json({ error: err.message });
     }
 };

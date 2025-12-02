@@ -1,5 +1,6 @@
+// client/src/components/features/Reports.jsx
 import React, { useState, useMemo, useEffect } from 'react';
-import { Download, FileText, RefreshCw, Archive } from 'lucide-react';
+import { Download, FileText, RefreshCw, Archive, BarChart2 } from 'lucide-react';
 import Card from '../ui/Card';
 import Button from '../ui/Button';
 import Badge from '../ui/Badge';
@@ -11,7 +12,7 @@ import JSZip from 'jszip';
 import { getInvoiceBlob } from '../../lib/pdf-generator';
 
 const Reports = ({ invoices = [], expenses = [], userSettings, addToast }) => {
-  const [activeTab, setActiveTab] = useState('gstr1'); // gstr1 (Sales), gstr2 (Purchase)
+  const [activeTab, setActiveTab] = useState('overview'); // overview, gstr1, gstr2
   
   // --- Filtering State ---
   const [periodType, setPeriodType] = useState('Monthly'); // 'Monthly' or 'Quarterly'
@@ -97,6 +98,28 @@ const Reports = ({ invoices = [], expenses = [], userSettings, addToast }) => {
 
     return { totalSales, totalOutputTax, totalPurchases, totalInputTax, netPayable };
   }, [filteredInvoices, filteredExpenses, exchangeRates]);
+
+  // --- Chart Data Calculation (Last 6 Months) ---
+  const chartData = useMemo(() => {
+      const months = [];
+      const today = new Date();
+      for(let i=5; i>=0; i--) {
+          const d = new Date(today.getFullYear(), today.getMonth() - i, 1);
+          months.push(d.toISOString().slice(0, 7)); // YYYY-MM
+      }
+
+      return months.map(month => {
+          const monthlyInvoices = invoices.filter(i => (i.date || '').startsWith(month));
+          const monthlyExpenses = expenses.filter(e => (e.date || '').startsWith(month));
+          
+          const sales = monthlyInvoices.reduce((acc, inv) => acc + getInrValue(inv.amount, inv.currency, inv.exchange_rate).value, 0);
+          const cost = monthlyExpenses.reduce((acc, exp) => acc + parseFloat(exp.amount || 0), 0);
+          
+          return { month, sales, cost };
+      });
+  }, [invoices, expenses, exchangeRates]);
+
+  const maxChartValue = Math.max(...chartData.map(d => Math.max(d.sales, d.cost)), 1);
 
   // --- 5. Export Logic (Excel) ---
   const handleExportExcel = () => {
@@ -221,40 +244,16 @@ const Reports = ({ invoices = [], expenses = [], userSettings, addToast }) => {
          <div className="flex gap-3 items-center">
             {/* Toggle Buttons */}
             <div className="flex rounded-md bg-slate-100 dark:bg-slate-700 p-1">
-              <button 
-                onClick={() => setPeriodType('Monthly')} 
-                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${periodType === 'Monthly' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-              >
-                Monthly
-              </button>
-              <button 
-                onClick={() => setPeriodType('Quarterly')} 
-                className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${periodType === 'Quarterly' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}
-              >
-                Quarterly
-              </button>
+              <button onClick={() => setPeriodType('Monthly')} className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${periodType === 'Monthly' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Monthly</button>
+              <button onClick={() => setPeriodType('Quarterly')} className={`px-3 py-1.5 text-xs font-medium rounded transition-all ${periodType === 'Quarterly' ? 'bg-white shadow text-slate-900' : 'text-slate-500 hover:text-slate-700 dark:text-slate-400 dark:hover:text-slate-200'}`}>Quarterly</button>
             </div>
 
             {/* Conditional Input */}
             <div className="w-40">
                 {periodType === 'Monthly' ? (
-                   <input 
-                     type="month" 
-                     value={selectedMonth} 
-                     onChange={(e) => setSelectedMonth(e.target.value)} 
-                     className="flex h-10 w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#3194A0] dark:border-slate-600 dark:text-white dark:bg-slate-800" 
-                   />
+                   <input type="month" value={selectedMonth} onChange={(e) => setSelectedMonth(e.target.value)} className="flex h-10 w-full rounded-md border border-slate-300 bg-transparent px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-[#3194A0] dark:border-slate-600 dark:text-white dark:bg-slate-800" />
                 ) : (
-                   <Select 
-                     value={selectedQuarter} 
-                     onChange={(e) => setSelectedQuarter(e.target.value)} 
-                     options={[
-                       { label: "Q1 (Apr-Jun)", value: "Q1 (Apr-Jun)" }, 
-                       { label: "Q2 (Jul-Sep)", value: "Q2 (Jul-Sep)" }, 
-                       { label: "Q3 (Oct-Dec)", value: "Q3 (Oct-Dec)" }, 
-                       { label: "Q4 (Jan-Mar)", value: "Q4 (Jan-Mar)" }
-                     ]} 
-                   />
+                   <Select value={selectedQuarter} onChange={(e) => setSelectedQuarter(e.target.value)} options={[{ label: "Q1 (Apr-Jun)", value: "Q1 (Apr-Jun)" }, { label: "Q2 (Jul-Sep)", value: "Q2 (Jul-Sep)" }, { label: "Q3 (Oct-Dec)", value: "Q3 (Oct-Dec)" }, { label: "Q4 (Jan-Mar)", value: "Q4 (Jan-Mar)" }]} />
                 )}
             </div>
             
@@ -262,98 +261,78 @@ const Reports = ({ invoices = [], expenses = [], userSettings, addToast }) => {
          </div>
       </div>
 
-      {/* Summary Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-          <Card className="p-6 border-l-4 border-l-[#3194A0]">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-slate-800 dark:text-white">Output Tax Liability</h3>
-                <div className="flex items-center gap-2">
-                    {!exchangeRates && <RefreshCw size={12} className="animate-spin text-slate-300"/>}
-                    <Badge type="primary">{filteredInvoices.length} Invoices</Badge>
-                </div>
-              </div>
-              <div className="space-y-4">
-                <div className="flex justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-700">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Total Taxable Sales</span>
-                    <span className="font-semibold dark:text-white">₹{formatNumber(totals.totalSales, userSettings.number_format)}</span>
-                </div>
-                <div className="flex justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-700">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Total Output Tax</span>
-                    <span className="font-semibold dark:text-white">₹{formatNumber(totals.totalOutputTax, userSettings.number_format)}</span>
-                </div>
-                <div className="pt-2 flex justify-between text-lg border-t dark:border-slate-700">
-                    <span className="font-bold text-slate-800 dark:text-white">Total Liability</span>
-                    <span className="font-bold text-[#3194A0]">₹{formatNumber(totals.totalOutputTax, userSettings.number_format)}</span>
-                </div>
-              </div>
-          </Card>
-
-          <Card className="p-6 border-l-4 border-l-emerald-500">
-              <div className="flex justify-between items-center mb-6">
-                <h3 className="font-bold text-slate-800 dark:text-white">Input Tax Credit (ITC)</h3>
-                <Badge type="warning">{filteredExpenses.length} Expenses</Badge>
-              </div>
-              <div className="space-y-4">
-                <div className="flex justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-700">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Total Purchases</span>
-                    <span className="font-semibold dark:text-white">₹{formatNumber(totals.totalPurchases, userSettings.number_format)}</span>
-                </div>
-                <div className="flex justify-between p-3 bg-slate-50 dark:bg-slate-900 rounded border border-slate-100 dark:border-slate-700">
-                    <span className="text-sm text-slate-600 dark:text-slate-400">Eligible ITC</span>
-                    <span className="font-semibold dark:text-white">₹{formatNumber(totals.totalInputTax, userSettings.number_format)}</span>
-                </div>
-                <div className="pt-2 flex justify-between text-lg border-t dark:border-slate-700">
-                    <span className="font-bold text-slate-800 dark:text-white">Net Payable</span>
-                    <span className={`font-bold ${totals.netPayable > 0 ? 'text-red-600' : 'text-emerald-600'}`}>
-                        ₹{formatNumber(totals.netPayable, userSettings.number_format)}
-                    </span>
-                </div>
-              </div>
-          </Card>
-      </div>
-
       {/* Tabs */}
       <div className="border-b border-slate-200 dark:border-slate-700 mb-4">
         <nav className="-mb-px flex space-x-8">
+            <button onClick={() => setActiveTab('overview')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'overview' ? 'border-[#3194A0] text-[#3194A0]' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>Overview</button>
             <button onClick={() => setActiveTab('gstr1')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'gstr1' ? 'border-[#3194A0] text-[#3194A0]' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>GSTR-1 (Sales)</button>
             <button onClick={() => setActiveTab('gstr2')} className={`py-2 px-1 border-b-2 font-medium text-sm ${activeTab === 'gstr2' ? 'border-[#3194A0] text-[#3194A0]' : 'border-transparent text-slate-500 hover:text-slate-700 dark:text-slate-400'}`}>GSTR-2 (Expenses)</button>
         </nav>
       </div>
 
+      {activeTab === 'overview' && (
+          <div className="space-y-6">
+              {/* --- Summary Cards --- */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <Card className="p-6 border-l-4 border-l-[#3194A0]">
+                      <h3 className="font-bold text-slate-800 dark:text-white mb-4">Current Period Sales</h3>
+                      <div className="text-3xl font-bold text-[#3194A0]">₹{formatNumber(totals.totalSales, userSettings.number_format)}</div>
+                      <p className="text-sm text-slate-500 mt-1">Tax Liability: ₹{formatNumber(totals.totalOutputTax, userSettings.number_format)}</p>
+                  </Card>
+                  <Card className="p-6 border-l-4 border-l-red-500">
+                      <h3 className="font-bold text-slate-800 dark:text-white mb-4">Current Period Expenses</h3>
+                      <div className="text-3xl font-bold text-red-500">₹{formatNumber(totals.totalPurchases, userSettings.number_format)}</div>
+                      <p className="text-sm text-slate-500 mt-1">ITC Available: ₹{formatNumber(totals.totalInputTax, userSettings.number_format)}</p>
+                  </Card>
+              </div>
+
+              {/* --- Visual Chart (Pure CSS) --- */}
+              <Card className="p-6">
+                  <h3 className="font-bold text-slate-800 dark:text-white mb-6 flex items-center gap-2"><BarChart2 size={20}/> 6-Month Performance</h3>
+                  <div className="flex items-end gap-4 h-64 border-b border-slate-200 dark:border-slate-700 pb-2">
+                      {chartData.map((d, i) => (
+                          <div key={i} className="flex-1 flex flex-col items-center gap-2 h-full justify-end group relative">
+                              {/* Tooltip */}
+                              <div className="absolute -top-12 opacity-0 group-hover:opacity-100 transition-opacity bg-slate-800 text-white text-xs p-2 rounded pointer-events-none whitespace-nowrap z-10">
+                                  Sales: {formatNumber(d.sales)}<br/>Costs: {formatNumber(d.cost)}
+                              </div>
+                              
+                              <div className="w-full flex gap-1 items-end justify-center h-full">
+                                  {/* Sales Bar */}
+                                  <div style={{ height: `${(d.sales / maxChartValue) * 100}%` }} className="w-1/3 bg-[#3194A0] rounded-t min-h-[4px] transition-all duration-500"></div>
+                                  {/* Cost Bar */}
+                                  <div style={{ height: `${(d.cost / maxChartValue) * 100}%` }} className="w-1/3 bg-red-400 rounded-t min-h-[4px] transition-all duration-500"></div>
+                              </div>
+                              <span className="text-xs text-slate-500 dark:text-slate-400 font-medium rotate-0 whitespace-nowrap">{d.month}</span>
+                          </div>
+                      ))}
+                  </div>
+                  <div className="flex justify-center gap-6 mt-4">
+                      <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400"><div className="w-3 h-3 bg-[#3194A0] rounded-sm"></div> Sales</div>
+                      <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400"><div className="w-3 h-3 bg-red-400 rounded-sm"></div> Expenses</div>
+                  </div>
+              </Card>
+          </div>
+      )}
+
       {/* Table Content */}
-      {activeTab === 'gstr1' ? (
+      {activeTab === 'gstr1' && (
           <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                       <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50">
-                          <tr>
-                              <th className="px-6 py-3">Date</th>
-                              <th className="px-6 py-3">Invoice No</th>
-                              <th className="px-6 py-3">Client</th>
-                              <th className="px-6 py-3 text-right">Taxable (INR)</th>
-                              <th className="px-6 py-3 text-right">Tax (INR)</th>
-                              <th className="px-6 py-3 text-right">Total (INR)</th>
-                          </tr>
+                          <tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Invoice No</th><th className="px-6 py-3">Client</th><th className="px-6 py-3 text-right">Taxable (INR)</th><th className="px-6 py-3 text-right">Tax (INR)</th><th className="px-6 py-3 text-right">Total (INR)</th></tr>
                       </thead>
                       <tbody>
                           {filteredInvoices.map(inv => {
                               const { value: totalInr, usedRate } = getInrValue(inv.amount, inv.currency, inv.exchange_rate);
                               const taxInr = (parseFloat(inv.tax) || 0) * usedRate;
-                              const taxableInr = totalInr - taxInr;
-
                               return (
                                   <tr key={inv.id} className="border-b border-slate-100 dark:border-slate-700 hover:bg-slate-50 dark:hover:bg-slate-800/50">
                                       <td className="px-6 py-4 whitespace-nowrap text-slate-500">{formatDate(inv.date)}</td>
                                       <td className="px-6 py-4 font-medium">{inv.id}</td>
-                                      <td className="px-6 py-4">
-                                          <div className="font-medium text-slate-900 dark:text-white">{inv.client?.name}</div>
-                                          {inv.currency !== 'INR' && (
-                                              <div className="text-xs text-orange-500">
-                                                  {inv.currency} @ {usedRate.toFixed(2)}
-                                              </div>
-                                          )}
-                                      </td>
-                                      <td className="px-6 py-4 text-right">₹{formatNumber(taxableInr, userSettings.number_format)}</td>
+                                      <td className="px-6 py-4"><div className="font-medium text-slate-900 dark:text-white">{inv.client?.name}</div>{inv.currency !== 'INR' && (<div className="text-xs text-orange-500">{inv.currency} @ {usedRate.toFixed(2)}</div>)}</td>
+                                      <td className="px-6 py-4 text-right">₹{formatNumber(totalInr - taxInr, userSettings.number_format)}</td>
                                       <td className="px-6 py-4 text-right text-slate-500">₹{formatNumber(taxInr, userSettings.number_format)}</td>
                                       <td className="px-6 py-4 text-right font-bold text-slate-700 dark:text-slate-200">₹{formatNumber(totalInr, userSettings.number_format)}</td>
                                   </tr>
@@ -364,17 +343,14 @@ const Reports = ({ invoices = [], expenses = [], userSettings, addToast }) => {
                   </table>
               </div>
           </Card>
-      ) : (
+      )}
+
+      {activeTab === 'gstr2' && (
           <Card className="overflow-hidden">
               <div className="overflow-x-auto">
                   <table className="w-full text-sm text-left">
                       <thead className="text-xs text-slate-500 uppercase bg-slate-50 dark:bg-slate-800/50">
-                          <tr>
-                              <th className="px-6 py-3">Date</th>
-                              <th className="px-6 py-3">Category</th>
-                              <th className="px-6 py-3 text-right">Amount</th>
-                              <th className="px-6 py-3 text-right">ITC</th>
-                          </tr>
+                          <tr><th className="px-6 py-3">Date</th><th className="px-6 py-3">Category</th><th className="px-6 py-3 text-right">Amount</th><th className="px-6 py-3 text-right">ITC</th></tr>
                       </thead>
                       <tbody>
                           {filteredExpenses.map(exp => (
@@ -396,18 +372,9 @@ const Reports = ({ invoices = [], expenses = [], userSettings, addToast }) => {
       <Card className="p-8 bg-gradient-to-br from-slate-800 to-slate-900 text-white flex flex-col md:flex-row items-center justify-between gap-6 shadow-lg">
          <div>
            <h3 className="text-xl font-bold flex items-center gap-2"><Archive size={24} className="text-emerald-400"/> CA Filing Bundle</h3>
-           <p className="text-slate-300 text-sm mt-2 max-w-md leading-relaxed">
-             Includes: Invoice PDFs, Expense Receipts, and CSV Summaries.
-           </p>
+           <p className="text-slate-300 text-sm mt-2 max-w-md leading-relaxed">Includes: Invoice PDFs, Expense Receipts, and CSV Summaries.</p>
          </div>
-         <Button 
-            onClick={handleDownloadZip} 
-            loading={isZipping} 
-            disabled={filteredInvoices.length === 0 && filteredExpenses.length === 0}
-            className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 h-12 shadow-xl shadow-emerald-900/20"
-         >
-           {isZipping ? "Bundling..." : "Download .zip"}
-         </Button>
+         <Button onClick={handleDownloadZip} loading={isZipping} disabled={filteredInvoices.length === 0 && filteredExpenses.length === 0} className="bg-emerald-500 hover:bg-emerald-600 text-white px-8 py-3 h-12 shadow-xl shadow-emerald-900/20">{isZipping ? "Bundling..." : "Download .zip"}</Button>
        </Card>
     </div>
   );

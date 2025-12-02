@@ -9,7 +9,7 @@ const invoiceController = require('../controllers/invoiceController');
 const settingsController = require('../controllers/settingsController');
 const authMiddleware = require('../middleware/auth');
 const backupController = require('../controllers/backupController');
-const auth = require('../middleware/auth'); // Assuming you have auth middleware
+const auth = require('../middleware/auth'); 
 
 
 // Backup & Restore Routes
@@ -38,6 +38,7 @@ router.delete('/expenses/:id', expenseController.deleteExpense);
 // Invoices
 router.get('/invoices', invoiceController.getAllInvoices);
 router.post('/invoices', invoiceController.createInvoice);
+router.post('/invoices/delete-batch', invoiceController.deleteBulkInvoices); // NEW BULK ROUTE
 router.put('/invoices/:id', invoiceController.updateInvoice);
 router.put('/invoices/:id/status', invoiceController.updateInvoiceStatus);
 router.delete('/invoices/:id', invoiceController.deleteInvoice);
