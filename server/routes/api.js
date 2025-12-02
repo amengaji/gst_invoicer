@@ -10,6 +10,7 @@ const settingsController = require('../controllers/settingsController');
 const authMiddleware = require('../middleware/auth');
 const backupController = require('../controllers/backupController');
 const auth = require('../middleware/auth'); 
+const uploadController = require('../controllers/uploadController');
 
 
 // Backup & Restore Routes
@@ -21,7 +22,12 @@ router.post('/register', authController.register);
 router.post('/login', authController.login);
 
 // --- Protected Routes (Require Login) ---
-router.use(authMiddleware); // All routes below this line need a token
+router.use(authMiddleware);
+
+// Uploads (S3)
+router.post('/uploads/expense-receipt', uploadController.uploadExpenseReceipt);
+router.post('/uploads/expense-receipt', uploadController.uploadFile);
+
 
 // Clients
 router.get('/clients', clientController.getAllClients);
@@ -38,7 +44,7 @@ router.delete('/expenses/:id', expenseController.deleteExpense);
 // Invoices
 router.get('/invoices', invoiceController.getAllInvoices);
 router.post('/invoices', invoiceController.createInvoice);
-router.post('/invoices/delete-batch', invoiceController.deleteBulkInvoices); // NEW BULK ROUTE
+router.post('/invoices/delete-batch', invoiceController.deleteBulkInvoices);
 router.put('/invoices/:id', invoiceController.updateInvoice);
 router.put('/invoices/:id/status', invoiceController.updateInvoiceStatus);
 router.delete('/invoices/:id', invoiceController.deleteInvoice);

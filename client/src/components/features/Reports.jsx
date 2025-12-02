@@ -10,6 +10,8 @@ import { formatDate, generateCSV, getQuarter } from '../../lib/utils';
 import * as XLSX from 'xlsx';
 import JSZip from 'jszip';
 import { getInvoiceBlob } from '../../lib/pdf-generator';
+import { API_URL } from '../../config/api';
+
 
 const Reports = ({ invoices = [], expenses = [], userSettings, addToast }) => {
   const [activeTab, setActiveTab] = useState('overview'); // overview, gstr1, gstr2
