@@ -565,14 +565,20 @@ export default function App() {
           
           // AUTO-CREATE CLIENT if not exists
           if (!matchedClient) {
+            // Extract possible fields from CSV
+            const csvState = normalizeState(getVal(row, "Client State"));
+            const csvAddress = getVal(row, "Client Address");
+            const csvCity = getVal(row, "Client City");
+            const csvCountry = getVal(row, "Client Country");
+
              const newClient = {
                id: `C-AUTO-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
                name: clientName,
                // Use normalized state for new clients ("Other" instead of "Foreign")
-               state: normalizedClientState || "Maharashtra",
-               address: "Imported Address",
-               city: "Imported City",
-               country: "India",
+               state: csvState || "",
+               address: csvAddress || "",
+               city: csvCity || "",
+               country: csvCountry || "",
                contacts: [{ name: "", email: "", phone: "" }],
              };
 
