@@ -12,10 +12,6 @@ import { STATES, CURRENCIES } from '../../lib/constants';
 import * as XLSX from 'xlsx';
 import { API_URL } from '../../config/api';
 
-
-// Define API URL
-const API_URL = '';
-
 const KNOWN_IFSC_PREFIXES = {
   HDFC: 'HDFC',
   ICICI: 'ICIC',

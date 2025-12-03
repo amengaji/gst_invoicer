@@ -26,7 +26,7 @@ router.use(authMiddleware);
 
 // Uploads (S3)
 router.post('/uploads/expense-receipt', uploadController.uploadExpenseReceipt);
-router.post('/uploads/expense-receipt', uploadController.uploadFile);
+//router.post('/uploads/expense-receipt', uploadController.uploadFile);
 
 
 // Clients

@@ -28,8 +28,8 @@ import SettingsPage from './components/features/SettingsPage';
 import InvoiceViewModal from './components/features/InvoiceViewModal';
 import { generateInvoicePDF } from './lib/pdf-generator';
 
-// Define API URL - LEFT EMPTY to use relative path on AWS
-const API_URL = '';
+export const API_URL = import.meta.env.VITE_API_URL;
+
 
 // === RESIZABLE COLUMN HEADER COMPONENT ===
 function ResizableTH({ label, sortKey, onSort, sortConfig, noSort, align, children }) {
@@ -219,10 +219,10 @@ export default function App() {
     if (!token) return; 
     try {
         const [invRes, expRes, cliRes, setRes] = await Promise.all([
-            apiFetch(`${API_URL}/api/invoices`),
-            apiFetch(`${API_URL}/api/expenses`),
-            apiFetch(`${API_URL}/api/clients`),
-            apiFetch(`${API_URL}/api/settings`)
+            apiFetch(`${API_URL}/invoices`),
+            apiFetch(`${API_URL}/expenses`),
+            apiFetch(`${API_URL}/clients`),
+            apiFetch(`${API_URL}/settings`)
         ]);
         
         try {
@@ -284,8 +284,8 @@ export default function App() {
         const isUpdate = safeInvoices.some(inv => inv.id === newInvoice.id);
         
         const url = isUpdate 
-            ? `${API_URL}/api/invoices/${encodeURIComponent(newInvoice.id)}`
-            : `${API_URL}/api/invoices`;
+            ? `${API_URL}/invoices/${encodeURIComponent(newInvoice.id)}`
+            : `${API_URL}/invoices`;
         const method = isUpdate ? 'PUT' : 'POST';
 
         const res = await apiFetch(url, { method: method, body: JSON.stringify(newInvoice) });
@@ -309,7 +309,7 @@ export default function App() {
 
   const updateInvoiceStatus = async (id, status, rate) => {
     try {
-        await apiFetch(`${API_URL}/api/invoices/${encodeURIComponent(id)}/status`, { 
+        await apiFetch(`${API_URL}/invoices/${encodeURIComponent(id)}/status`, { 
             method: 'PUT', 
             body: JSON.stringify({ status, exchangeRate: rate }) 
         });
@@ -321,7 +321,7 @@ export default function App() {
   const handleDeleteInvoice = async () => {
     if (!invoiceToDelete) return;
     try {
-        await apiFetch(`${API_URL}/api/invoices/${encodeURIComponent(invoiceToDelete)}`, { method: 'DELETE' });
+        await apiFetch(`${API_URL}/invoices/${encodeURIComponent(invoiceToDelete)}`, { method: 'DELETE' });
         addToast("Invoice deleted", "success");
         setDeleteModalOpen(false);
         setInvoiceToDelete(null);
@@ -340,7 +340,7 @@ export default function App() {
       }
 
       try {
-          const res = await apiFetch(`${API_URL}/api/invoices/delete-batch`, {
+          const res = await apiFetch(`${API_URL}/invoices/delete-batch`, {
               method: 'POST',
               body: JSON.stringify({ ids: Array.from(selectedIds) })
           });
@@ -392,7 +392,7 @@ export default function App() {
               number_format: newSettings.number_format
           };
 
-          await apiFetch(`${API_URL}/api/settings`, {
+          await apiFetch(`${API_URL}/settings`, {
               method: 'PUT',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
@@ -577,7 +577,7 @@ export default function App() {
              };
 
              // Create client in DB
-             await apiFetch(`${API_URL}/api/clients`, {
+             await apiFetch(`${API_URL}/clients`, {
                 method: "POST",
                 body: JSON.stringify(newClient),
              });
@@ -658,7 +658,7 @@ export default function App() {
 
         try {
           // Use fetch directly to avoid auto-throw on 409
-          const res = await fetch(`${API_URL}/api/invoices`, {
+          const res = await fetch(`${API_URL}/invoices`, {
             method: "POST",
             headers: {
                 'Content-Type': 'application/json',
@@ -670,7 +670,7 @@ export default function App() {
           if (res.status === 409 || res.status === 500) {
             if (allowOverwrite) {
               const updateRes = await apiFetch(
-                `${API_URL}/api/invoices/${encodeURIComponent(inv.id)}`,
+                `${API_URL}/invoices/${encodeURIComponent(inv.id)}`,
                 {
                   method: "PUT",
                   body: JSON.stringify(payload),

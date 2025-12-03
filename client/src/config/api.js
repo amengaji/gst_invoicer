@@ -1,2 +1,3 @@
-export const API_URL = "http://13.201.132.174/api";
+// client/src/config/api.js
+export const API_URL = import.meta.env.VITE_API_URL;
 // or "https://api.yourdomain.com/api";
