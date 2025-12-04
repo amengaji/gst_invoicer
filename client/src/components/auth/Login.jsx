@@ -1,6 +1,8 @@
 // client/src/components/auth/Login.jsx
 import React, { useState } from 'react';
 import { Lock, Mail, Building2, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
+import { API_URL } from '../../config/api.js';
+
 
 export default function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
@@ -18,10 +20,9 @@ export default function Login({ onLogin }) {
     setError('');
     setIsLoading(true);
 
-    const API_URL = import.meta.env.VITE_API_URL;
 
 
-    const endpoint = isRegister ? `${API_URL}/register` : `${API_URL}/login`;
+    const endpoint = isRegister ? `${API_URL}/auth/register` : `${API_URL}/auth/login`;
 
     // 🔐 SEND TOTP ONLY DURING REGISTER
     const payload = isRegister 
