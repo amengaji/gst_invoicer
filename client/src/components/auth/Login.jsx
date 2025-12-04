@@ -1,10 +1,16 @@
+// client/src/components/auth/Login.jsx
 import React, { useState } from 'react';
-import { Lock, Mail, Building2, ArrowRight, Loader2 } from 'lucide-react';
+import { Lock, Mail, Building2, ArrowRight, Loader2, ShieldCheck } from 'lucide-react';
 
 export default function Login({ onLogin }) {
   const [isRegister, setIsRegister] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [formData, setFormData] = useState({ email: '', password: '', companyName: '' });
+  const [formData, setFormData] = useState({ 
+    email: '', 
+    password: '', 
+    companyName: '',
+    totp: ''         // 🔐 NEW FIELD
+  });
   const [error, setError] = useState('');
 
   const handleSubmit = async (e) => {
@@ -12,13 +18,25 @@ export default function Login({ onLogin }) {
     setError('');
     setIsLoading(true);
 
-    const endpoint = isRegister ? '/api/register' : '/api/login';
+    const API_URL = import.meta.env.VITE_API_URL;
+
+
+    const endpoint = isRegister ? `${API_URL}/register` : `${API_URL}/login`;
+
+    // 🔐 SEND TOTP ONLY DURING REGISTER
     const payload = isRegister 
-        ? { email: formData.email, password: formData.password, companyName: formData.companyName } 
-        : { email: formData.email, password: formData.password };
+      ? { 
+          email: formData.email,
+          password: formData.password,
+          companyName: formData.companyName,
+          totp: formData.totp        // 🔐 NEW
+        }
+      : { 
+          email: formData.email,
+          password: formData.password 
+        };
 
     try {
-      // FIX: Using relative path (no http://localhost:5000)
       const res = await fetch(`${endpoint}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -31,6 +49,7 @@ export default function Login({ onLogin }) {
         if (isRegister) {
            alert("Registration successful! Please log in.");
            setIsRegister(false);
+           setFormData({ email: '', password: '', companyName: '', totp: '' });
         } else {
            onLogin(data.token);
         }
@@ -38,31 +57,41 @@ export default function Login({ onLogin }) {
         setError(data.error || "Authentication failed");
       }
     } catch (err) {
-        console.error(err);
-        setError("Server connection failed. Is the backend running?");
+      console.error(err);
+      setError("Server connection failed. Is the backend running?");
     } finally {
-        setIsLoading(false);
+      setIsLoading(false);
     }
   };
 
   return (
     <div className="min-h-screen bg-slate-100 flex items-center justify-center p-4">
       <div className="bg-white w-full max-w-md p-8 rounded-2xl shadow-xl border border-slate-200">
+        
+        {/* HEADER */}
         <div className="text-center mb-8">
-            <div className="w-12 h-12 bg-teal-100 text-teal-600 rounded-full flex items-center justify-center mx-auto mb-4">
-                <Lock size={24} />
-            </div>
-            <h2 className="text-2xl font-bold text-slate-800">{isRegister ? 'Create Account' : 'Welcome Back'}</h2>
-            <p className="text-sm text-slate-500 mt-2">{isRegister ? 'Start managing your invoices today.' : 'Sign in to access your dashboard.'}</p>
+          <div className="w-12 h-12 bg-teal-100 text-teal-600 rounded-full flex items-center justify-center mx-auto mb-4">
+              <Lock size={24} />
+          </div>
+          <h2 className="text-2xl font-bold text-slate-800">
+            {isRegister ? 'Create Account' : 'Welcome Back'}
+          </h2>
+          <p className="text-sm text-slate-500 mt-2">
+            {isRegister ? 'Start managing your invoices today.' : 'Sign in to access your dashboard.'}
+          </p>
         </div>
 
+        {/* ERROR MESSAGE */}
         {error && (
-            <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
-                {error}
-            </div>
+          <div className="mb-4 p-3 bg-red-50 text-red-600 text-sm rounded-lg border border-red-100">
+            {error}
+          </div>
         )}
 
+        {/* FORM */}
         <form onSubmit={handleSubmit} className="space-y-4">
+
+          {/* COMPANY NAME (register only) */}
           {isRegister && (
              <div>
                 <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Company Name</label>
@@ -80,6 +109,7 @@ export default function Login({ onLogin }) {
              </div>
           )}
 
+          {/* EMAIL */}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Email Address</label>
             <div className="relative">
@@ -95,6 +125,7 @@ export default function Login({ onLogin }) {
             </div>
           </div>
 
+          {/* PASSWORD */}
           <div>
             <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Password</label>
             <div className="relative">
@@ -110,6 +141,26 @@ export default function Login({ onLogin }) {
             </div>
           </div>
 
+          {/* 🔐 AUTHENTICATOR CODE (register only) */}
+          {isRegister && (
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase mb-1">Authenticator Code</label>
+              <div className="relative">
+                <ShieldCheck className="absolute left-3 top-3 text-slate-400" size={18} />
+                <input 
+                  type="text"
+                  maxLength="6"
+                  required
+                  className="w-full pl-10 pr-4 py-2.5 bg-slate-50 border border-slate-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-teal-500 transition-all"
+                  placeholder="123456"
+                  value={formData.totp}
+                  onChange={e => setFormData({...formData, totp: e.target.value})}
+                />
+              </div>
+            </div>
+          )}
+
+          {/* SUBMIT BUTTON */}
           <button 
             type="submit" 
             disabled={isLoading}
@@ -120,9 +171,13 @@ export default function Login({ onLogin }) {
           </button>
         </form>
 
+        {/* SWITCH MODE */}
         <div className="mt-6 text-center">
-            <button onClick={() => setIsRegister(!isRegister)} className="text-sm text-teal-600 hover:underline">
-                {isRegister ? 'Already have an account? Log In' : "Don't have an account? Create one"}
+            <button 
+              onClick={() => setIsRegister(!isRegister)} 
+              className="text-sm text-teal-600 hover:underline"
+            >
+              {isRegister ? 'Already have an account? Log In' : "Don't have an account? Create one"}
             </button>
         </div>
       </div>

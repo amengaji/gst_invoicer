@@ -1,26 +1,54 @@
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+const speakeasy = require("speakeasy");
 
-const SECRET_KEY = "my_super_secret_key_123"; // Move to ENV later
+const SECRET_KEY = "my_super_secret_key_123"; // TODO: move to .env later
+
 
 // ============================
-// REGISTER
+// REGISTER (Protected with TOTP)
 // ============================
 exports.register = async (req, res) => {
-    const { email, password, companyName } = req.body;
+    const { email, password, companyName, totp } = req.body;
 
     try {
-        // 1. Check if email already exists
-        const exists = await db.query(`SELECT id FROM users WHERE email = $1`, [email]);
+        // =======================================
+        // 🔐 1. Verify Authenticator Code (TOTP)
+        // =======================================
+        const isValid = speakeasy.totp.verify({
+            secret: process.env.TOTP_SECRET,   // from your .env
+            encoding: "base32",
+            token: totp,
+            window: 1                          // small time drift allowed
+        });
+
+        if (!isValid) {
+            return res.status(403).json({
+                error: "Invalid authenticator code"
+            });
+        }
+
+        // =======================================
+        // 🔍 2. Check if email already exists
+        // =======================================
+        const exists = await db.query(
+            `SELECT id FROM users WHERE email = $1`,
+            [email]
+        );
+
         if (exists.rows.length > 0) {
             return res.status(409).json({ error: "Email already registered" });
         }
 
-        // 2. Hash password
+        // =======================================
+        // 🔐 3. Hash password
+        // =======================================
         const hash = await bcrypt.hash(password, 10);
 
-        // 3. Create User
+        // =======================================
+        // 🧑‍💼 4. Create user
+        // =======================================
         const result = await db.query(
             `INSERT INTO users (email, password, company_name)
              VALUES ($1, $2, $3)
@@ -31,7 +59,9 @@ exports.register = async (req, res) => {
         const user = result.rows[0];
         console.log("✅ User created:", user.email);
 
-        // 4. Create FULL settings row (no missing columns)
+        // =======================================
+        // ⚙️ 5. Create settings row (default values)
+        // =======================================
         try {
             await db.query(
                 `INSERT INTO settings (
@@ -59,19 +89,20 @@ exports.register = async (req, res) => {
 
         } catch (settingErr) {
             console.error("⚠️ Settings creation failed:", settingErr.message);
-            // Continue - user can update settings manually
         }
 
-        res.json({ message: "User registered successfully" });
+        return res.json({ message: "User registered successfully" });
 
     } catch (err) {
         console.error("❌ Registration Error:", err.message);
-        res.status(500).json({ error: err.message });
+        return res.status(500).json({ error: err.message });
     }
 };
 
+
+
 // ============================
-// LOGIN
+// LOGIN (unchanged)
 // ============================
 exports.login = async (req, res) => {
     const { email, password } = req.body;
@@ -102,7 +133,7 @@ exports.login = async (req, res) => {
             { expiresIn: '30d' }
         );
 
-        res.json({
+        return res.json({
             token,
             user: {
                 id: user.id,
@@ -113,6 +144,6 @@ exports.login = async (req, res) => {
 
     } catch (err) {
         console.error("❌ Login Error:", err.message);
-        res.status(500).json({ error: err.message });
+        return res.status(500).json({ error: err.message });
     }
 };

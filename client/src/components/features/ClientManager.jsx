@@ -9,6 +9,9 @@ import Badge from '../ui/Badge';
 import Pagination from '../ui/Pagination';
 import { STATES, INITIAL_CLIENT_STATE } from '../../lib/constants';
 import { API_URL } from '../../config/api';
+import SearchSelect from "../ui/SearchSelect";
+import { COUNTRY_LIST } from "../../lib/countries";
+
 
 const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   const [clients, setClients] = useState([]);
@@ -16,6 +19,66 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
   const [isAdding, setIsAdding] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [newClient, setNewClient] = useState(INITIAL_CLIENT_STATE);
+  
+
+  // GSTIN first two digits → Indian State mapping
+  const GST_STATE_MAP = {
+    "01": "Jammu & Kashmir",
+    "02": "Himachal Pradesh",
+    "03": "Punjab",
+    "04": "Chandigarh",
+    "05": "Uttarakhand",
+    "06": "Haryana",
+    "07": "Delhi",
+    "08": "Rajasthan",
+    "09": "Uttar Pradesh",
+    "10": "Bihar",
+    "11": "Sikkim",
+    "12": "Arunachal Pradesh",
+    "13": "Nagaland",
+    "14": "Manipur",
+    "15": "Mizoram",
+    "16": "Tripura",
+    "17": "Meghalaya",
+    "18": "Assam",
+    "19": "West Bengal",
+    "20": "Jharkhand",
+    "21": "Odisha",
+    "22": "Chhattisgarh",
+    "23": "Madhya Pradesh",
+    "24": "Gujarat",
+    "25": "Daman & Diu",
+    "26": "Dadra & Nagar Haveli",
+    "27": "Maharashtra",
+    "28": "Andhra Pradesh (Old)",
+    "29": "Karnataka",
+    "30": "Goa",
+    "31": "Lakshadweep",
+    "32": "Kerala",
+    "33": "Tamil Nadu",
+    "34": "Puducherry",
+    "35": "Andaman & Nicobar",
+    "36": "Telangana",
+    "37": "Andhra Pradesh"
+  };
+
+
+
+
+  
+
+  // Convert stored DB value to display label
+  const getStateLabel = (state) => {
+    if (!state) return "";
+    const lower = state.toString().toLowerCase().trim();
+
+    // Database stores "Other" for Foreign (Export)
+    if (lower === "other") return "Foreign (Export)";
+
+    // For Indian states just return as it is
+    return state;
+  };
+
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -286,15 +349,58 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
             <Input label="Company Name" value={newClient.name} onChange={e => setNewClient({ ...newClient, name: e.target.value })} />
-            <Input label="GSTIN/Tax ID" value={newClient.gstin} onChange={e => setNewClient({ ...newClient, gstin: e.target.value })} />
+            <Input 
+              label="GSTIN/Tax ID" 
+              value={newClient.gstin} 
+              disabled={newClient.state === "Other" }  // Disable if Foreign
+              onChange={e => {
+                const gst = e.target.value.toUpperCase();
+                const code = gst.substring(0, 2);
 
+                let autoState = newClient.state;
+                let autoCountry = newClient.country;
+
+                // Auto-fill state and country if GSTIN state code matches
+                if (GST_STATE_MAP[code]) {
+                  autoState = GST_STATE_MAP[code];
+                  autoCountry = "India";
+                }
+                setNewClient({ 
+                  ...newClient, 
+                  gstin: gst,
+                  state: autoState,
+                  country: autoCountry 
+                })
+              }} />
+
+
+
+              {/* Address Fields*/}
             <div className="col-span-2">
               <Input label="Address Line 1" value={newClient.address} onChange={e => setNewClient({ ...newClient, address: e.target.value })} />
             </div>
 
             <Input label="City" value={newClient.city} onChange={e => setNewClient({ ...newClient, city: e.target.value })} />
-            <Select label="State" value={newClient.state} onChange={e => setNewClient({ ...newClient, state: e.target.value })} options={[...STATES.map(s => ({ label: s, value: s })), { label: "Foreign (Export)", value: "Other" }]} />
-            <Input label="Country" value={newClient.country} onChange={e => setNewClient({ ...newClient, country: e.target.value })} />
+            <Select 
+              label="State" 
+              value={newClient.state} 
+              onChange={e => {
+                const stateValue = e.target.value;
+                
+                setNewClient({
+                  ...newClient, 
+                  state: stateValue,
+                  country: stateValue === "Other" ? "" : "India" 
+                });
+              }} 
+              options={[
+                { label: "Select State", value: "" },
+                ...STATES.map(s => ({ label: s, value: s })), 
+                { label: "Foreign (Export)", value: "Other" }
+              ]} 
+              />
+            
+            <SearchSelect label="Country" value={newClient.country} isSearchable={true} options={COUNTRY_LIST.map(c => ({label:c, value:c }))} onChange={e => setNewClient({ ...newClient, country: e.target.value })} />
           </div>
 
           <div className="mb-6">
@@ -348,7 +454,7 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
 
               <div className="flex items-start gap-2 text-sm text-slate-500 dark:text-slate-400">
                 <MapPin size={14} className="mt-0.5" />
-                <span>{client.city}, {client.country}</span>
+                <span>{client.city || "N/A"}, {getStateLabel(client.state)}, {client.country}</span>
               </div>
 
               <div className="mt-2 text-xs text-slate-400">
@@ -357,7 +463,7 @@ const ClientManager = ({ addToast, searchQuery, onUpdate }) => {
             </div>
 
             <div className="flex flex-wrap gap-2 mt-4">
-              <Badge>{client.state}</Badge>
+              <Badge>{getStateLabel(client.state)}</Badge>
               {client.gstin && <Badge type="primary">{client.gstin}</Badge>}
             </div>
           </Card>
