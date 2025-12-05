@@ -1,6 +1,7 @@
 // server/routes/api.js
 const express = require('express');
 const router = express.Router();
+const multer = require('multer'); // <--- 1. ADD THIS
 
 const authController = require('../controllers/authController');
 const clientController = require('../controllers/clientController');
@@ -24,7 +25,7 @@ router.post('/auth/login', authController.login);
 router.use(authMiddleware);
 
 // Uploads (S3)
-router.post('/uploads/expense-receipt', uploadController.uploadExpenseReceipt);
+router.post('/uploads/expense-receipt', upload.single('expense-receipt'), uploadController.uploadExpenseReceipt);
 //router.post('/uploads/expense-receipt', uploadController.uploadFile);
 
 

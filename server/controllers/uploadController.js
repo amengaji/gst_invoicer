@@ -11,25 +11,22 @@ const s3 = new S3Client({
 
 exports.uploadExpenseReceipt = async (req, res) => {
   try {
-    const { fileName, fileData } = req.body;
-
-    if (!fileName || !fileData) {
-      return res.status(400).json({ message: "Missing file data" });
+    // 1. Check if Multer grabbed the file
+    if (!req.file) {
+      return res.status(400).json({ message: "No file uploaded. Check Frontend FormData key is 'expense-receipt'" });
     }
 
-    // Strip base64 header
-    const base64 = fileData.replace(/^data:.+;base64,/, "");
-    const buffer = Buffer.from(base64, "base64");
-
+    const file = req.file;
     // Generate unique S3 key
-    const s3Key = `expense-receipts/${Date.now()}-${fileName}`;
+    const s3Key = `expense-receipts/${Date.now()}-${file.originalname}`;
 
+    // 2. Upload the buffer directly
     await s3.send(
       new PutObjectCommand({
         Bucket: process.env.AWS_S3_BUCKET,
         Key: s3Key,
-        Body: buffer,
-        ContentType: "application/octet-stream",
+        Body: file.buffer, // <--- Multer gives us this buffer
+        ContentType: file.mimetype,
       })
     );
 
@@ -37,7 +34,7 @@ exports.uploadExpenseReceipt = async (req, res) => {
 
     res.json({
       url,
-      fileName,
+      fileName: file.originalname,
     });
   } catch (err) {
     console.error("Upload Error:", err);
