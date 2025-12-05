@@ -123,7 +123,7 @@ const handleFileChange = async (e) => {
     // 1. Create FormData object
     const formData = new FormData();
     // 2. Append file with the specific key 'expense-receipt'
-    formData.append('expense-receipt', file); 
+    formData.append('expense-receipt', fileObject); 
 
     // 3. Send as multipart form data (Browser sets Content-Type automatically)
     const res = await authFetch(`${API_URL}/uploads/expense-receipt`, {
