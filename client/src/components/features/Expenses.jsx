@@ -44,26 +44,26 @@ const Expenses = ({ addToast }) => {
 const authFetch = async (url, options = {}) => {
   const token = localStorage.getItem("token");
 
-  // If uploading FormData → DO NOT add Content-Type manually
-  if (options.body instanceof FormData) {
-    return fetch(url, {
-      ...options,
-      headers: {
-        Authorization: `Bearer ${token}`,
-      },
-    });
+  let headers = {
+    Authorization: `Bearer ${token}`,
+  };
+
+  // If this is NOT FormData → add JSON header
+  if (!(options.body instanceof FormData)) {
+    headers["Content-Type"] = "application/json";
   }
 
-  // Normal JSON request
+  // If developer passed custom headers → merge safely
+  if (options.headers) {
+    headers = { ...headers, ...options.headers };
+  }
+
   return fetch(url, {
     ...options,
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-      ...(options.headers || {}),
-    },
+    headers,
   });
 };
+
 
 
   // --- API: Fetch Expenses ---
@@ -255,9 +255,6 @@ const handleFileChange = async (e) => {
 
       const res = await authFetch(url, {
         method,
-        headers: {
-          'Content-Type': 'application/json'
-        },
         body: JSON.stringify(payload)
       });
 
