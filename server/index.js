@@ -21,11 +21,11 @@ const path = require('path');
 
 // 1. Tell node to serve the files from the build folder
 // (Change 'client/build' to wherever your frontend build is located)
-app.use(express.static(path.join(__dirname, 'client/build')));
+app.use(express.static(path.join(__dirname, '../client/build')));
 
 // 2. Handle any requests that don't match the above
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'client/build', 'index.html'));
+  res.sendFile(path.join(__dirname, '../client/build', 'index.html'));
 });
 
 // --- Start Server ---
