@@ -40,24 +40,31 @@ const Expenses = ({ addToast }) => {
   const [editingId, setEditingId] = useState(null);
 
   // --- Helper: Authenticated Fetch (JSON and others) ---
-  const authFetch = async (url, options = {}) => {
-    const token = localStorage.getItem('token');
+// --- Helper: Authenticated Fetch (JSON + FormData safe) ---
+const authFetch = async (url, options = {}) => {
+  const token = localStorage.getItem("token");
 
-    const headers = {
+  // If uploading FormData → DO NOT add Content-Type manually
+  if (options.body instanceof FormData) {
+    return fetch(url, {
+      ...options,
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    });
+  }
+
+  // Normal JSON request
+  return fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
       ...(options.headers || {}),
-      Authorization: `Bearer ${token}`
-    };
+    },
+  });
+};
 
-    const res = await fetch(url, { ...options, headers });
-
-    if (res.status === 401 || res.status === 403) {
-      localStorage.removeItem('token');
-      window.location.reload();
-      return null;
-    }
-
-    return res;
-  };
 
   // --- API: Fetch Expenses ---
   const fetchExpenses = async () => {
