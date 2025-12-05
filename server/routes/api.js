@@ -9,17 +9,16 @@ const invoiceController = require('../controllers/invoiceController');
 const settingsController = require('../controllers/settingsController');
 const authMiddleware = require('../middleware/auth');
 const backupController = require('../controllers/backupController');
-const auth = require('../middleware/auth'); 
 const uploadController = require('../controllers/uploadController');
 
 
 // Backup & Restore Routes
-router.get('/backup', auth, backupController.createBackup);
-router.post('/backup', auth, backupController.restoreBackup);
+router.get('/backup', authMiddleware, backupController.createBackup);
+router.post('/backup', authMiddleware, backupController.restoreBackup);
 
 // --- Public Routes ---
-router.post('/register', authController.register);
-router.post('/login', authController.login);
+router.post('/auth/register', authController.register);
+router.post('/auth/login', authController.login);
 
 // --- Protected Routes (Require Login) ---
 router.use(authMiddleware);

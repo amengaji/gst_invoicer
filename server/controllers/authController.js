@@ -1,3 +1,4 @@
+//server/controllers/authController.js
 const db = require('../config/db');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
@@ -23,11 +24,11 @@ exports.register = async (req, res) => {
             window: 1                          // small time drift allowed
         });
 
-        if (!isValid) {
-            return res.status(403).json({
-                error: "Invalid authenticator code"
-            });
-        }
+        // if (!isValid) {
+        //     return res.status(403).json({
+        //         error: "Invalid authenticator code"
+        //     });
+        // }
 
         // =======================================
         // 🔍 2. Check if email already exists
