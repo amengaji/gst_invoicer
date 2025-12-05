@@ -99,6 +99,7 @@ const Expenses = ({ addToast }) => {
   );
 
   // --- File Upload (to S3 via backend) ---
+// --- File Upload (Corrected to use FormData) ---
 const handleFileChange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
@@ -119,35 +120,27 @@ const handleFileChange = async (e) => {
   try {
     addToast("Uploading...", "info");
 
-    // Convert file → base64
-    const toBase64 = (file) =>
-      new Promise((resolve, reject) => {
-        const reader = new FileReader();
-        reader.onload = () => resolve(reader.result);
-        reader.onerror = reject;
-        reader.readAsDataURL(file);
-      });
+    // 1. Create FormData object
+    const formData = new FormData();
+    // 2. Append file with the specific key 'expense-receipt'
+    formData.append('expense-receipt', file); 
 
-    const base64 = await toBase64(file);
-
-    // Upload to backend → AWS S3
+    // 3. Send as multipart form data (Browser sets Content-Type automatically)
     const res = await authFetch(`${API_URL}/uploads/expense-receipt`, {
       method: "POST",
-      body: JSON.stringify({
-        fileName: file.name,
-        fileData: base64,
-      })
+      body: formData, 
     });
 
     if (!res || !res.ok) throw new Error("Upload failed");
 
     const data = await res.json();
 
-    // Save uploaded URL + file name in form
+    // 4. Update Form State
+    // FIXED: Changed 'receiptURL' to 'receiptUrl' to match handleSubmit validation
     setForm(prev => ({
       ...prev,
-      receiptURL: data.url,        // S3 URL
-      receiptName: data.fileName
+      receiptUrl: data.url,        
+      receiptName: data.fileName || file.name
     }));
 
     setErrors(prev => ({ ...prev, receipt: false }));
