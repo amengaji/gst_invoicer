@@ -11,6 +11,12 @@ const settingsController = require('../controllers/settingsController');
 const authMiddleware = require('../middleware/auth');
 const backupController = require('../controllers/backupController');
 const uploadController = require('../controllers/uploadController');
+// Create Multer upload handler
+const upload = multer({
+  storage: multer.memoryStorage(), // required for S3 buffer upload
+  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB
+});
+
 
 
 // Backup & Restore Routes
