@@ -44,18 +44,15 @@ const Expenses = ({ addToast }) => {
 const authFetch = async (url, options = {}) => {
   const token = localStorage.getItem("token");
 
+  const isFormData = options.body instanceof FormData;
+
   let headers = {
     Authorization: `Bearer ${token}`,
   };
 
-  // If this is NOT FormData → add JSON header
-  if (!(options.body instanceof FormData)) {
+  // ❌ DO NOT SET CONTENT-TYPE for FormData uploads
+  if (!isFormData) {
     headers["Content-Type"] = "application/json";
-  }
-
-  // If developer passed custom headers → merge safely
-  if (options.headers) {
-    headers = { ...headers, ...options.headers };
   }
 
   return fetch(url, {
@@ -63,6 +60,7 @@ const authFetch = async (url, options = {}) => {
     headers,
   });
 };
+
 
 
 
@@ -107,57 +105,58 @@ const authFetch = async (url, options = {}) => {
 
   // --- File Upload (to S3 via backend) ---
 // --- File Upload (Corrected to use FormData) ---
+// --- File Upload (Corrected & Fully Working) ---
 const handleFileChange = async (e) => {
   const file = e.target.files[0];
   if (!file) return;
 
-  // Validate size (max 10MB)
+  console.log("Selected file:", file);
+
+  // Size validation
   if (file.size > 10 * 1024 * 1024) {
-    addToast("File too large! Max allowed is 10MB.", "error");
+    addToast("File too large! Max 10MB.", "error");
     return;
   }
 
-  // Validate type
+  // Type validation
   const allowedTypes = ["application/pdf", "image/jpeg", "image/png"];
   if (!allowedTypes.includes(file.type)) {
-    addToast("Only PDF, JPG, or PNG allowed.", "error");
+    addToast("Only PDF, JPG or PNG allowed.", "error");
     return;
   }
 
   try {
     addToast("Uploading...", "info");
 
-    // 1. Create FormData object
     const formData = new FormData();
-    // 2. Append file with the specific key 'expense-receipt'
-    formData.append('expense-receipt', file); 
+    formData.append("expense-receipt", file); // KEY MUST MATCH BACKEND
 
-    // 3. Send as multipart form data (Browser sets Content-Type automatically)
     const res = await authFetch(`${API_URL}/uploads/expense-receipt`, {
       method: "POST",
-      body: formData, 
+      body: formData,
     });
 
-    if (!res || !res.ok) throw new Error("Upload failed");
+    if (!res.ok) {
+      const t = await res.text();
+      console.log("UPLOAD ERROR:", t);
+      throw new Error("Upload failed");
+    }
 
     const data = await res.json();
 
-    // 4. Update Form State
-    // FIXED: Changed 'receiptURL' to 'receiptUrl' to match handleSubmit validation
-    setForm(prev => ({
+    setForm((prev) => ({
       ...prev,
-      receiptUrl: data.url,        
-      receiptName: data.fileName || file.name
+      receiptUrl: data.url,
+      receiptName: data.fileName || file.name,
     }));
 
-    setErrors(prev => ({ ...prev, receipt: false }));
     addToast("Receipt uploaded successfully!", "success");
-
-  } catch (err) {
-    console.error(err);
+  } catch (error) {
+    console.error("UPLOAD FAILED:", error);
     addToast("Failed to upload receipt", "error");
   }
 };
+
 
 
   const handleInputChange = (field, value) => {
@@ -528,7 +527,11 @@ const handleFileChange = async (e) => {
                       type="file"
                       className="hidden"
                       accept="image/*,application/pdf"
-                      onChange={handleFileChange}
+                      enctype="multipart/form-data"
+                      onChange={(e) =>{
+                        console.log("User selected file:", e.target.files[0]);
+                        handleFileChange(e);
+                      }}
                     />
                   </label>
 
